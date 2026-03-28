@@ -3,7 +3,7 @@
 import { useState, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-const API = "http://localhost:8000";
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 interface DrugResult {
   id: number;

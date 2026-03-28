@@ -1,9 +1,11 @@
 "use client";
 
+export const runtime = 'edge';
+
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
-const API = "http://localhost:8000";
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 interface ApiSalt {
   inn_name: string;
