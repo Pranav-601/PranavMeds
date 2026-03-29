@@ -65,7 +65,7 @@ export default function Home() {
 
   const handleCompare = () => {
     if (selected.length === 2) {
-      window.location.href = `/compare/${selected[0].id}-vs-${selected[1].id}`;
+      window.location.href = `/compare?drugs=${selected[0].id}-vs-${selected[1].id}`;
     }
   };
 
@@ -217,7 +217,7 @@ export default function Home() {
                 {[drug.manufacturer, drug.dosage_form, drug.strength].filter(Boolean).join(" · ")}
               </p>
               <a
-                href={`/drug/${drug.id}`}
+                href={`/drug?id=${drug.id}`}
                 onClick={(e) => e.stopPropagation()}
                 className="text-emerald-500 text-xs hover:text-emerald-400 mt-1 inline-block"
               >

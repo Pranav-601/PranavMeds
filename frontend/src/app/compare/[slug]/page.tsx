@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -76,8 +76,8 @@ const verdictConfig = {
 };
 
 export default function ComparePage() {
-  const params = useParams();
-  const slug = params?.slug as string;
+  const searchParams = useSearchParams();
+  const slug = searchParams.get("drugs") || "";
   const [data, setData] = useState<ApiComparisonResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

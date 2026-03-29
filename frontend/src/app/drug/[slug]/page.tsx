@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -30,20 +30,19 @@ interface DrugDetail {
 }
 
 export default function DrugPage() {
-  const params = useParams();
-  const slug = params?.slug as string;
+  const searchParams = useSearchParams();
+  const drugId = searchParams.get("id") || "";
   const [drug, setDrug] = useState<DrugDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!slug) return;
-    // slug here is actually the drug ID from the URL
-    fetch(`${API}/api/v1/drug/${slug}`)
+    if (!drugId) return;
+    fetch(`${API}/api/v1/drug/${drugId}`)
       .then((r) => r.json())
       .then((d) => { setDrug(d); setLoading(false); })
       .catch(() => { setError("Failed to load drug."); setLoading(false); });
-  }, [slug]);
+  }, [drugId]);
 
   if (loading) return (
     <main className="min-h-screen bg-black flex items-center justify-center">
