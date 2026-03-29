@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -29,7 +29,7 @@ interface DrugDetail {
   salts: Salt[];
 }
 
-export default function DrugPage() {
+function DrugContent() {
   const searchParams = useSearchParams();
   const drugId = searchParams.get("id") || "";
   const [drug, setDrug] = useState<DrugDetail | null>(null);
@@ -172,5 +172,17 @@ export default function DrugPage() {
         </p>
       </div>
     </main>
+  );
+}
+
+export default function DrugPage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-black flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+      </main>
+    }>
+      <DrugContent />
+    </Suspense>
   );
 }

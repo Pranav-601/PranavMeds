@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -75,7 +75,7 @@ const verdictConfig = {
   },
 };
 
-export default function ComparePage() {
+function CompareContent() {
   const searchParams = useSearchParams();
   const slug = searchParams.get("drugs") || "";
   const [data, setData] = useState<ApiComparisonResult | null>(null);
@@ -130,9 +130,6 @@ export default function ComparePage() {
   const onlyInA = data.only_in_drug_a ?? [];
   const onlyInB = data.only_in_drug_b ?? [];
   const saltsComparison = data.salts_comparison ?? [];
-
-  // Build salt list from salts_comparison if shared/only arrays are empty
-  const allSaltNames = saltsComparison.map(s => s.inn_name);
 
   return (
     <main className="min-h-screen bg-black text-white px-4 py-12">
@@ -374,5 +371,17 @@ export default function ComparePage() {
 
       </div>
     </main>
+  );
+}
+
+export default function ComparePage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-black flex items-center justify-center">
+        <div className="w-10 h-10 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+      </main>
+    }>
+      <CompareContent />
+    </Suspense>
   );
 }
