@@ -10,7 +10,7 @@ router = APIRouter(prefix="/api/v1", tags=["ocr"])
 
 GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.0-flash:generateContent"
+    "gemini-2.5-flash-lite:generateContent"
 )
 
 
