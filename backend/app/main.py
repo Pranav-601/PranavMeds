@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.api.v1.drugs import router as drugs_router
 from app.api.v1.compare import router as compare_router
 from app.api.v1.request_drug import router as request_drug_router
+from app.api.v1.ocr import router as ocr_router  # NEW
 
 app = FastAPI(
     title="PranavMeds API",
@@ -28,6 +29,7 @@ app.add_middleware(
 app.include_router(drugs_router)
 app.include_router(compare_router)
 app.include_router(request_drug_router)
+app.include_router(ocr_router)  # NEW
 
 
 @app.get("/health")

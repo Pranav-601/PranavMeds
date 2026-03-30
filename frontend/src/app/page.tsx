@@ -99,27 +99,20 @@ export default function Home() {
       </div>
 
       {/* Search bar */}
-      <div className="w-full max-w-xl mb-6">
+      <div className="w-full max-w-xl mb-4">
         <div className="relative">
           <input
             type="text"
             value={query}
             onChange={(e) => handleQueryChange(e.target.value)}
             placeholder="Search by medicine name (e.g. Crocin, Dolo, Combiflam...)"
-            className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-5 py-4 pr-20 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-400 transition-colors text-base"
+            className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-5 py-4 pr-14 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-400 transition-colors text-base"
             autoFocus
           />
           <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
             {isFetching && (
               <div className="w-5 h-5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
             )}
-            <button
-              onClick={() => setShowScanner(true)}
-              className="text-zinc-500 hover:text-emerald-400 transition-colors text-lg"
-              title="Scan medicine with camera"
-            >
-              📷
-            </button>
           </div>
         </div>
         {results.length > 0 && (
@@ -128,6 +121,36 @@ export default function Home() {
           </p>
         )}
       </div>
+
+      {/* Scan feature card — shows when no search is active */}
+      {!searched && (
+        <div className="w-full max-w-xl mb-6">
+          <button
+            onClick={() => setShowScanner(true)}
+            className="w-full group bg-gradient-to-br from-zinc-900 to-zinc-900/50 border border-zinc-800 hover:border-emerald-400/40 rounded-2xl p-5 text-left transition-all duration-300 hover:shadow-lg hover:shadow-emerald-400/5"
+          >
+            <div className="flex items-start gap-4">
+              <div className="w-11 h-11 rounded-xl bg-emerald-400/10 border border-emerald-400/20 flex items-center justify-center shrink-0 group-hover:bg-emerald-400/15 transition-colors">
+                <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-white font-semibold text-sm group-hover:text-emerald-400 transition-colors">
+                  Scan Medicine
+                </p>
+                <p className="text-zinc-500 text-xs mt-1 leading-relaxed">
+                  Use your camera to scan a medicine strip or box. We&apos;ll recognize it and find alternatives for you.
+                </p>
+              </div>
+              <svg className="w-4 h-4 text-zinc-600 group-hover:text-emerald-400 mt-1 shrink-0 transition-colors" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </div>
+          </button>
+        </div>
+      )}
 
       {/* Selected pills + compare button */}
       {selected.length > 0 && (
