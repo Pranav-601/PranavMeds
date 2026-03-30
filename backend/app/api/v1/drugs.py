@@ -18,41 +18,32 @@ async def search_drugs(
     limit: int = Query(10, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Search for drugs by name.
-    Phase 3: Meilisearch fuzzy/typo-tolerant search with SQL fallback.
-    """
-    try:
-        # Try Meilisearch first
-        from app.services.search import search_drugs as meili_search
-        hits = await meili_search(q, limit=limit)
-        if hits:
-            results = [
-                DrugBrief(
-                    id=h["id"],
-                    brand_name=h.get("brand_name", ""),
-                    manufacturer=h.get("manufacturer") or None,
-                    dosage_form=h.get("dosage_form") or None,
-                    strength=h.get("strength") or None,
-                    mrp=h.get("mrp") or None,
-                    slug=h.get("slug") or None,
-                    image_url=h.get("image_url") or None,
-                )
-                for h in hits
-            ]
-            return SearchResult(query=q, count=len(results), results=results)
-    except Exception:
-        pass  # Fall back to SQL
+    """Search for drugs by name using PostgreSQL trigram fuzzy search."""
+    from sqlalchemy import text, func
 
-    # SQL fallback
+    # Trigram similarity search — typo tolerant ("crocen" → "Crocin")
     stmt = (
         select(Drug)
-        .where(Drug.brand_name.ilike(f"%{q}%"))
-        .order_by(Drug.brand_name)
+        .where(
+            func.similarity(Drug.brand_name, q) > 0.1
+        )
+        .order_by(func.similarity(Drug.brand_name, q).desc())
         .limit(limit)
     )
-    result = await db.execute(stmt)
-    drugs = result.scalars().all()
+
+    try:
+        result = await db.execute(stmt)
+        drugs = result.scalars().all()
+    except Exception:
+        # Fallback to ILIKE if pg_trgm not available
+        stmt = (
+            select(Drug)
+            .where(Drug.brand_name.ilike(f"%{q}%"))
+            .order_by(Drug.brand_name)
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        drugs = result.scalars().all()
 
     return SearchResult(
         query=q,
