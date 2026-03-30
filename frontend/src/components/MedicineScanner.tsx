@@ -1,329 +1,705 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useCallback, useRef, useState, useEffect } from "react";
 import Webcam from "react-webcam";
-
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 interface MedicineScannerProps {
   onResult: (drugName: string) => void;
   onClose: () => void;
 }
 
+type ScanState =
+  | "camera"
+  | "preview"
+  | "scanning"
+  | "results"
+  | "no-match"
+  | "error"
+  | "no-camera";
+
 interface DrugMatch {
   id: number;
   brand_name: string;
+  generic_name?: string;
 }
 
-type Mode = "camera" | "processing" | "results";
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL || "https://pranavmeds.onrender.com";
+
+// Noise words to strip from OCR result before searching
+const NOISE_WORDS =
+  /\b(\d+\s?mg|\d+\s?ml|\d+\s?mcg|tablet|capsule|syrup|injection|cream|gel|drops|ointment|solution|suspension|batch|mfg|exp|ip|bp|usp|strip|pack|rx|℞)\b/gi;
 
 export default function MedicineScanner({ onResult, onClose }: MedicineScannerProps) {
   const webcamRef = useRef<Webcam>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [mode, setMode] = useState<Mode>("camera");
+  const [scanState, setScanState] = useState<ScanState>("camera");
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [matches, setMatches] = useState<DrugMatch[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [ocrText, setOcrText] = useState("");
   const [cameraError, setCameraError] = useState(false);
+  const [scanLine, setScanLine] = useState(0);
 
-  // ── Core OCR + search pipeline ──────────────────────────────────────────────
-  const processImage = useCallback(async (imageSrc: string) => {
-    setMode("processing");
-    setError(null);
+  // Animate scan line
+  useEffect(() => {
+    if (scanState !== "camera" && scanState !== "preview") return;
+    const interval = setInterval(() => {
+      setScanLine((prev) => (prev >= 100 ? 0 : prev + 0.8));
+    }, 16);
+    return () => clearInterval(interval);
+  }, [scanState]);
 
+  const handleCameraError = useCallback(() => {
+    setCameraError(true);
+    setScanState("no-camera");
+  }, []);
+
+  // ── OCR via backend (with direct Gemini fallback) ──────────────────────────
+  async function runOCR(blob: Blob): Promise<string> {
+    // Try backend first
     try {
-      // 1. Convert base64 dataURL → Blob
-      setProgress("Sending image to Gemini Vision…");
-      const fetchRes = await fetch(imageSrc);
-      const blob = await fetchRes.blob();
-
       const form = new FormData();
       form.append("image", blob, "scan.jpg");
-
-      // 2. Hit our backend OCR endpoint (key stays server-side)
-      const ocrRes = await fetch(`${API}/api/v1/ocr`, {
+      const res = await fetch(`${API_BASE}/api/v1/ocr`, {
         method: "POST",
         body: form,
       });
-
-      if (!ocrRes.ok) throw new Error("OCR request failed");
-      const { text } = await ocrRes.json();
-
-      if (!text || text.trim().length < 2) {
-        setError("Couldn't read a medicine name. Try better lighting or a closer shot.");
-        setMode("camera");
-        return;
+      if (res.ok) {
+        const data = await res.json();
+        if (data.text) return data.text;
+      } else {
+        const errText = await res.text();
+        console.warn("Backend OCR failed:", res.status, errText);
       }
-
-      // 3. Search the database with the extracted name
-      setProgress(`Searching for "${text.trim()}"…`);
-
-      const noiseWords = new Set([
-        "mg", "ml", "tablet", "tablets", "capsule", "capsules", "strip",
-        "pack", "of", "each", "mfg", "exp", "batch", "manufactured",
-        "marketed", "by", "date", "store", "below", "keep", "away",
-        "children", "price", "mrp", "incl", "gst", "composition",
-        "schedule", "rx", "use", "under", "medical", "supervision",
-        "injection", "syrup", "solution", "suspension", "cream", "ointment",
-      ]);
-
-      // Gemini already returns just the brand name, but clean it anyway
-      const cleaned = text
-        .trim()
-        .replace(/[^a-zA-Z0-9\s]/g, "")
-        .split(/\s+/)
-        .filter((w: string) => !noiseWords.has(w.toLowerCase()) && w.length > 1)
-        .join(" ")
-        .trim();
-
-      if (cleaned.length < 2) {
-        setError("Couldn't extract a medicine name. Please try again.");
-        setMode("camera");
-        return;
-      }
-
-      const searchRes = await fetch(
-        `${API}/api/v1/search?q=${encodeURIComponent(cleaned)}&limit=5`
-      );
-      if (!searchRes.ok) throw new Error("Search failed");
-      const data = await searchRes.json();
-
-      const found: DrugMatch[] = (data.results ?? []).map((r: DrugMatch) => ({
-        id: r.id,
-        brand_name: r.brand_name,
-      }));
-
-      setMatches(found);
-      setMode("results");
-    } catch (err) {
-      console.error(err);
-      setError("Something went wrong. Please try again.");
-      setMode("camera");
+    } catch (e) {
+      console.warn("Backend OCR network error:", e);
     }
-  }, []);
 
-  // ── Camera capture ───────────────────────────────────────────────────────────
+    // Direct Gemini fallback (needs NEXT_PUBLIC_GEMINI_API_KEY on Netlify)
+    const geminiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+    if (geminiKey) {
+      const b64 = await blobToBase64(blob);
+      const payload = {
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                inlineData: {
+                  mimeType: blob.type || "image/jpeg",
+                  data: b64,
+                },
+              },
+              {
+                text:
+                  "This is a photo of an Indian medicine box, strip, or blister pack. " +
+                  "Extract ONLY the brand name of the medicine (the largest or most prominent text). " +
+                  "Do NOT include dosage (mg/ml), form (tablet/capsule/syrup), manufacturer name, " +
+                  "batch number, expiry date, or any other text. " +
+                  "Reply with just the medicine brand name, nothing else. " +
+                  "If you cannot find a medicine name, reply with an empty string.",
+              },
+            ],
+          },
+        ],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 50 },
+      };
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
+      }
+      throw new Error(`Gemini direct call failed: ${res.status}`);
+    }
+
+    throw new Error(
+      "OCR failed. Make sure GEMINI_API_KEY is set on Render (or NEXT_PUBLIC_GEMINI_API_KEY on Netlify for fallback)."
+    );
+  }
+
+  async function blobToBase64(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        resolve(result.split(",")[1]);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function dataURLtoBlob(dataURL: string): Promise<Blob> {
+    const res = await fetch(dataURL);
+    return res.blob();
+  }
+
+  // ── Process image (capture or upload) ─────────────────────────────────────
+  async function processImage(imageDataURL: string) {
+    setCapturedImage(imageDataURL);
+    setScanState("scanning");
+    setErrorMsg("");
+    setOcrText("");
+    setMatches([]);
+
+    try {
+      const blob = await dataURLtoBlob(imageDataURL);
+      const rawText = await runOCR(blob);
+
+      if (!rawText.trim()) {
+        setErrorMsg("No medicine name found in the image. Try holding the box closer.");
+        setScanState("error");
+        return;
+      }
+
+      const cleaned = rawText.replace(NOISE_WORDS, "").replace(/\s+/g, " ").trim();
+      setOcrText(cleaned || rawText.trim());
+
+      const searchTerm = cleaned || rawText.trim();
+      const res = await fetch(
+        `${API_BASE}/api/v1/search?q=${encodeURIComponent(searchTerm)}&limit=6`
+      );
+      const drugs: DrugMatch[] = await res.json();
+
+      if (!drugs || drugs.length === 0) {
+        setMatches([]);
+        setScanState("no-match");
+      } else {
+        setMatches(drugs);
+        setScanState("results");
+      }
+    } catch (e: any) {
+      console.error("Scanner error:", e);
+      setErrorMsg(e?.message || "Unexpected error. Please try again.");
+      setScanState("error");
+    }
+  }
+
+  // ── Capture from webcam ────────────────────────────────────────────────────
   const handleCapture = useCallback(() => {
     const imageSrc = webcamRef.current?.getScreenshot();
     if (!imageSrc) return;
-    setCapturedImage(imageSrc);
     processImage(imageSrc);
-  }, [processImage]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // ── Gallery upload ───────────────────────────────────────────────────────────
-  const handleFileUpload = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const imageSrc = event.target?.result as string;
-        setCapturedImage(imageSrc);
-        processImage(imageSrc);
-      };
-      reader.readAsDataURL(file);
-    },
-    [processImage]
-  );
-
-  const handleReset = () => {
-    setMode("camera");
-    setCapturedImage(null);
-    setMatches([]);
-    setError(null);
-    setProgress("");
+  // ── Upload from gallery ────────────────────────────────────────────────────
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataURL = reader.result as string;
+      processImage(dataURL);
+    };
+    reader.readAsDataURL(file);
+    // Reset so same file can be re-selected
+    e.target.value = "";
   };
 
-  // ── Render ───────────────────────────────────────────────────────────────────
+  const handleReset = () => {
+    setCapturedImage(null);
+    setMatches([]);
+    setErrorMsg("");
+    setOcrText("");
+    setScanState(cameraError ? "no-camera" : "camera");
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
-        <div>
-          <p className="text-white font-semibold text-base">Scan Medicine</p>
-          <p className="text-zinc-500 text-xs mt-0.5">
-            {mode === "camera" && "Point camera at medicine box or strip"}
-            {mode === "processing" && "Reading medicine name…"}
-            {mode === "results" && "Tap a match to search"}
-          </p>
-        </div>
-        <button
-          onClick={onClose}
-          className="w-9 h-9 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors"
-          aria-label="Close scanner"
+    <>
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture={undefined}
+        onChange={handleFileUpload}
+        style={{ display: "none" }}
+      />
+
+      {/* Backdrop */}
+      <div
+        onClick={onClose}
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.75)",
+          zIndex: 9998,
+          backdropFilter: "blur(6px)",
+        }}
+      />
+
+      {/* Modal */}
+      <div
+        style={{
+          position: "fixed",
+          zIndex: 9999,
+          // Mobile: full screen. Desktop: centered card
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)",
+        }}
+      >
+        <div
+          style={{
+            background: "#0f172a",
+            borderRadius: "clamp(0px, 3vw, 20px)",
+            overflow: "hidden",
+            width: "min(480px, 100vw)",
+            maxHeight: "min(780px, 100dvh)",
+            display: "flex",
+            flexDirection: "column",
+            boxShadow: "0 40px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06)",
+            position: "relative",
+          }}
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
+          {/* ── Header ── */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "14px 16px 10px",
+              borderBottom: "1px solid rgba(255,255,255,0.07)",
+              flexShrink: 0,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 20 }}>💊</span>
+              <div>
+                <div style={{ color: "#f8fafc", fontWeight: 700, fontSize: 15, letterSpacing: "-0.2px" }}>
+                  Medicine Scanner
+                </div>
+                <div style={{ color: "#64748b", fontSize: 12 }}>
+                  Powered by Gemini Vision
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              style={{
+                background: "rgba(255,255,255,0.07)",
+                border: "none",
+                borderRadius: "50%",
+                width: 34,
+                height: 34,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#94a3b8",
+                fontSize: 18,
+                lineHeight: 1,
+                transition: "background 0.15s",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.13)")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.07)")}
+            >
+              ×
+            </button>
+          </div>
+
+          {/* ── Camera / Content Area ── */}
+          <div style={{ position: "relative", flex: 1, minHeight: 0, background: "#000" }}>
+            {/* Camera feed */}
+            {(scanState === "camera" || scanState === "preview") && !cameraError && (
+              <>
+                <Webcam
+                  ref={webcamRef}
+                  audio={false}
+                  screenshotFormat="image/jpeg"
+                  screenshotQuality={0.92}
+                  videoConstraints={{
+                    facingMode: { ideal: "environment" },
+                    aspectRatio: 1,
+                  }}
+                  onUserMediaError={handleCameraError}
+                  style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                />
+
+                {/* Scan frame overlay */}
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    pointerEvents: "none",
+                  }}
+                >
+                  {/* Dark vignette */}
+                  <div style={{
+                    position: "absolute",
+                    inset: 0,
+                    background: "radial-gradient(ellipse at center, transparent 42%, rgba(0,0,0,0.55) 100%)",
+                  }} />
+
+                  {/* Frame box */}
+                  <div style={{ position: "relative", width: "72%", paddingBottom: "72%" }}>
+                    <div style={{ position: "absolute", inset: 0 }}>
+                      {/* Corners */}
+                      {[
+                        { top: 0, left: 0, borderTop: "3px solid #10b981", borderLeft: "3px solid #10b981", borderRadius: "4px 0 0 0" },
+                        { top: 0, right: 0, borderTop: "3px solid #10b981", borderRight: "3px solid #10b981", borderRadius: "0 4px 0 0" },
+                        { bottom: 0, left: 0, borderBottom: "3px solid #10b981", borderLeft: "3px solid #10b981", borderRadius: "0 0 0 4px" },
+                        { bottom: 0, right: 0, borderBottom: "3px solid #10b981", borderRight: "3px solid #10b981", borderRadius: "0 0 4px 0" },
+                      ].map((s, i) => (
+                        <div key={i} style={{ position: "absolute", width: 28, height: 28, ...s }} />
+                      ))}
+
+                      {/* Animated scan line */}
+                      <div
+                        style={{
+                          position: "absolute",
+                          left: 4,
+                          right: 4,
+                          top: `${scanLine}%`,
+                          height: 2,
+                          background: "linear-gradient(90deg, transparent, #10b981, #34d399, #10b981, transparent)",
+                          boxShadow: "0 0 12px 2px rgba(16,185,129,0.6)",
+                          transition: "top 16ms linear",
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Instruction label */}
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 12,
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    background: "rgba(0,0,0,0.6)",
+                    backdropFilter: "blur(8px)",
+                    color: "#e2e8f0",
+                    fontSize: 12,
+                    fontWeight: 500,
+                    padding: "5px 12px",
+                    borderRadius: 20,
+                    whiteSpace: "nowrap",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                  }}
+                >
+                  Point camera at medicine box or strip
+                </div>
+              </>
+            )}
+
+            {/* No camera — upload only */}
+            {scanState === "no-camera" && (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 12,
+                  padding: 32,
+                  minHeight: 220,
+                  color: "#94a3b8",
+                  textAlign: "center",
+                }}
+              >
+                <div style={{ fontSize: 48 }}>📷</div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: "#cbd5e1" }}>
+                  Camera access denied
+                </div>
+                <div style={{ fontSize: 13, maxWidth: 260, lineHeight: 1.5 }}>
+                  Enable camera permissions in your browser settings, or upload an image from your gallery.
+                </div>
+              </div>
+            )}
+
+            {/* Preview of captured/uploaded image */}
+            {(scanState === "scanning" || scanState === "results" || scanState === "no-match" || scanState === "error") &&
+              capturedImage && (
+                <img
+                  src={capturedImage}
+                  alt="Captured"
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    display: "block",
+                    filter: scanState === "scanning" ? "brightness(0.5)" : "none",
+                    transition: "filter 0.3s",
+                  }}
+                />
+              )}
+
+            {/* Scanning overlay */}
+            {scanState === "scanning" && (
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 14,
+                }}
+              >
+                <div style={{ position: "relative", width: 56, height: 56 }}>
+                  <div style={{
+                    width: 56, height: 56, borderRadius: "50%",
+                    border: "3px solid rgba(16,185,129,0.2)",
+                    borderTop: "3px solid #10b981",
+                    animation: "spin 0.8s linear infinite",
+                  }} />
+                  <div style={{
+                    position: "absolute", inset: 0,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 22,
+                  }}>
+                    🔍
+                  </div>
+                </div>
+                <div style={{ color: "#e2e8f0", fontSize: 15, fontWeight: 600 }}>
+                  Analysing image…
+                </div>
+                <div style={{ color: "#64748b", fontSize: 12 }}>
+                  Gemini Vision is reading the label
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Bottom panel ── */}
+          <div style={{ flexShrink: 0, padding: "14px 16px 16px", background: "#0f172a" }}>
+            {/* CAMERA STATE — capture + upload buttons */}
+            {(scanState === "camera" || scanState === "no-camera") && (
+              <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "center" }}>
+                {/* Upload from gallery */}
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  style={{
+                    flex: "0 0 auto",
+                    height: 52,
+                    padding: "0 20px",
+                    background: "rgba(255,255,255,0.07)",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    borderRadius: 14,
+                    color: "#cbd5e1",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    transition: "background 0.15s",
+                    whiteSpace: "nowrap",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.13)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.07)")}
+                >
+                  <span style={{ fontSize: 18 }}>🖼️</span>
+                  Upload photo
+                </button>
+
+                {/* Capture button */}
+                {scanState === "camera" && (
+                  <button
+                    onClick={handleCapture}
+                    style={{
+                      flex: "0 0 auto",
+                      width: 68,
+                      height: 68,
+                      borderRadius: "50%",
+                      background: "#10b981",
+                      border: "4px solid rgba(255,255,255,0.15)",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 26,
+                      boxShadow: "0 0 0 2px #10b981, 0 6px 20px rgba(16,185,129,0.4)",
+                      transition: "transform 0.1s, box-shadow 0.1s",
+                    }}
+                    onMouseDown={(e) => {
+                      e.currentTarget.style.transform = "scale(0.94)";
+                      e.currentTarget.style.boxShadow = "0 0 0 2px #10b981, 0 2px 10px rgba(16,185,129,0.3)";
+                    }}
+                    onMouseUp={(e) => {
+                      e.currentTarget.style.transform = "scale(1)";
+                      e.currentTarget.style.boxShadow = "0 0 0 2px #10b981, 0 6px 20px rgba(16,185,129,0.4)";
+                    }}
+                    title="Capture"
+                  >
+                    📸
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* SCANNING STATE */}
+            {scanState === "scanning" && (
+              <div style={{ textAlign: "center", color: "#64748b", fontSize: 13 }}>
+                This usually takes 2–4 seconds…
+              </div>
+            )}
+
+            {/* RESULTS STATE */}
+            {scanState === "results" && (
+              <div>
+                {ocrText && (
+                  <div style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ color: "#64748b", fontSize: 12 }}>Detected:</span>
+                    <span
+                      style={{
+                        background: "rgba(16,185,129,0.12)",
+                        border: "1px solid rgba(16,185,129,0.25)",
+                        color: "#34d399",
+                        padding: "2px 10px",
+                        borderRadius: 20,
+                        fontSize: 12,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {ocrText}
+                    </span>
+                  </div>
+                )}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+                  {matches.map((drug) => (
+                    <button
+                      key={drug.id}
+                      onClick={() => {
+                        onResult(drug.brand_name);
+                        onClose();
+                      }}
+                      style={{
+                        background: "rgba(16,185,129,0.1)",
+                        border: "1px solid rgba(16,185,129,0.3)",
+                        borderRadius: 10,
+                        color: "#e2e8f0",
+                        padding: "8px 14px",
+                        cursor: "pointer",
+                        fontSize: 14,
+                        fontWeight: 600,
+                        textAlign: "left",
+                        transition: "background 0.15s, border-color 0.15s",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = "rgba(16,185,129,0.22)";
+                        e.currentTarget.style.borderColor = "rgba(16,185,129,0.55)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "rgba(16,185,129,0.1)";
+                        e.currentTarget.style.borderColor = "rgba(16,185,129,0.3)";
+                      }}
+                    >
+                      {drug.brand_name}
+                      {drug.generic_name && (
+                        <span style={{ display: "block", color: "#64748b", fontSize: 11, fontWeight: 400, marginTop: 1 }}>
+                          {drug.generic_name}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                <button onClick={handleReset} style={secondaryBtnStyle}>
+                  🔄 Scan again
+                </button>
+              </div>
+            )}
+
+            {/* NO MATCH STATE */}
+            {scanState === "no-match" && (
+              <div>
+                <div
+                  style={{
+                    background: "rgba(251,191,36,0.08)",
+                    border: "1px solid rgba(251,191,36,0.2)",
+                    borderRadius: 12,
+                    padding: "10px 14px",
+                    marginBottom: 12,
+                    color: "#fbbf24",
+                    fontSize: 13,
+                  }}
+                >
+                  <strong>"{ocrText}"</strong> — no matching drugs found in the database.
+                </div>
+                <button onClick={handleReset} style={secondaryBtnStyle}>
+                  🔄 Try again
+                </button>
+              </div>
+            )}
+
+            {/* ERROR STATE */}
+            {scanState === "error" && (
+              <div>
+                <div
+                  style={{
+                    background: "rgba(239,68,68,0.08)",
+                    border: "1px solid rgba(239,68,68,0.2)",
+                    borderRadius: 12,
+                    padding: "10px 14px",
+                    marginBottom: 12,
+                    color: "#fca5a5",
+                    fontSize: 12,
+                    lineHeight: 1.5,
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {errorMsg || "Something went wrong. Please try again."}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={handleReset} style={secondaryBtnStyle}>
+                    🔄 Try again
+                  </button>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{ ...secondaryBtnStyle, flex: "0 0 auto" }}
+                  >
+                    🖼️ Upload instead
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* ── CAMERA MODE ── */}
-      {mode === "camera" && (
-        <div className="flex-1 flex flex-col">
-          {/* Viewfinder */}
-          <div className="flex-1 relative overflow-hidden">
-            {!cameraError ? (
-              <Webcam
-                ref={webcamRef}
-                audio={false}
-                screenshotFormat="image/jpeg"
-                screenshotQuality={0.85}
-                videoConstraints={{ facingMode: { ideal: "environment" } }}
-                onUserMediaError={() => setCameraError(true)}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-zinc-950 px-8 text-center">
-                <div className="w-14 h-14 rounded-full bg-zinc-800 flex items-center justify-center">
-                  <svg className="w-7 h-7 text-zinc-500" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
-                  </svg>
-                </div>
-                <p className="text-zinc-400 text-sm">Camera access denied or unavailable</p>
-                <p className="text-zinc-600 text-xs">Use the upload option below instead</p>
-              </div>
-            )}
-
-            {/* Scanning frame overlay */}
-            {!cameraError && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="w-64 h-40 relative">
-                  {/* Corner brackets */}
-                  <div className="absolute top-0 left-0 w-6 h-6 border-t-2 border-l-2 border-emerald-400 rounded-tl" />
-                  <div className="absolute top-0 right-0 w-6 h-6 border-t-2 border-r-2 border-emerald-400 rounded-tr" />
-                  <div className="absolute bottom-0 left-0 w-6 h-6 border-b-2 border-l-2 border-emerald-400 rounded-bl" />
-                  <div className="absolute bottom-0 right-0 w-6 h-6 border-b-2 border-r-2 border-emerald-400 rounded-br" />
-                  {/* Scan line animation */}
-                  <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent animate-scan" />
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Error message */}
-          {error && (
-            <div className="mx-5 mt-3 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-red-400 text-sm text-center">
-              {error}
-            </div>
-          )}
-
-          {/* Controls */}
-          <div className="px-5 py-6 flex flex-col items-center gap-4 shrink-0">
-            {!cameraError && (
-              <button
-                onClick={handleCapture}
-                className="w-16 h-16 rounded-full bg-white hover:bg-zinc-100 transition-colors flex items-center justify-center shadow-lg shadow-white/10"
-                aria-label="Capture photo"
-              >
-                <div className="w-12 h-12 rounded-full border-2 border-zinc-300" />
-              </button>
-            )}
-
-            {/* Gallery upload */}
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-2 text-zinc-400 hover:text-emerald-400 text-sm transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
-              </svg>
-              Upload from gallery
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleFileUpload}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* ── PROCESSING MODE ── */}
-      {mode === "processing" && (
-        <div className="flex-1 flex flex-col items-center justify-center gap-6 px-8">
-          {capturedImage && (
-            <img
-              src={capturedImage}
-              alt="Captured"
-              className="w-32 h-20 object-cover rounded-xl border border-zinc-700"
-            />
-          )}
-          <div className="flex flex-col items-center gap-3">
-            <div className="w-10 h-10 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
-            <p className="text-zinc-300 text-sm text-center">{progress || "Processing…"}</p>
-            <p className="text-zinc-600 text-xs text-center">Powered by Gemini Vision</p>
-          </div>
-        </div>
-      )}
-
-      {/* ── RESULTS MODE ── */}
-      {mode === "results" && (
-        <div className="flex-1 flex flex-col px-5 pb-6 overflow-y-auto">
-          {/* Thumbnail */}
-          {capturedImage && (
-            <div className="flex justify-center mb-6 mt-2">
-              <img
-                src={capturedImage}
-                alt="Scanned"
-                className="w-28 h-18 object-cover rounded-xl border border-zinc-700"
-              />
-            </div>
-          )}
-
-          {matches.length > 0 ? (
-            <>
-              <p className="text-zinc-500 text-xs text-center mb-4">
-                {matches.length} match{matches.length !== 1 ? "es" : ""} found — tap one to search
-              </p>
-              <div className="flex flex-col gap-3">
-                {matches.map((match) => (
-                  <button
-                    key={match.id}
-                    onClick={() => {
-                      onResult(match.brand_name);
-                      onClose();
-                    }}
-                    className="w-full bg-emerald-400/10 border border-emerald-400/30 hover:bg-emerald-400/20 hover:border-emerald-400 text-emerald-400 px-5 py-3.5 rounded-xl text-left font-medium transition-all"
-                  >
-                    {match.brand_name}
-                  </button>
-                ))}
-              </div>
-            </>
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center">
-              <p className="text-zinc-400 text-sm">No medicines matched.</p>
-              <p className="text-zinc-600 text-xs max-w-xs">
-                Try again with better lighting, or hold the camera closer to the medicine name.
-              </p>
-            </div>
-          )}
-
-          <button
-            onClick={handleReset}
-            className="mt-6 w-full border border-zinc-700 hover:border-zinc-500 text-zinc-400 hover:text-white py-3 rounded-xl text-sm transition-colors"
-          >
-            Scan again
-          </button>
-        </div>
-      )}
-
-      {/* Scan line animation style */}
-      <style jsx>{`
-        @keyframes scan {
-          0% { top: 0; opacity: 1; }
-          90% { opacity: 1; }
-          100% { top: 100%; opacity: 0; }
-        }
-        .animate-scan {
-          animation: scan 2s linear infinite;
+      <style>{`
+        @keyframes spin {
+          to { transform: rotate(360deg); }
         }
       `}</style>
-    </div>
+    </>
   );
 }
+
+const secondaryBtnStyle: React.CSSProperties = {
+  flex: 1,
+  height: 44,
+  background: "rgba(255,255,255,0.07)",
+  border: "1px solid rgba(255,255,255,0.1)",
+  borderRadius: 12,
+  color: "#cbd5e1",
+  fontSize: 13,
+  fontWeight: 600,
+  cursor: "pointer",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 6,
+  transition: "background 0.15s",
+};
