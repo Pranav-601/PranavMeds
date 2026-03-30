@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
+
+const MedicineScanner = lazy(() => import("../components/MedicineScanner"));
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -33,6 +35,7 @@ export default function Home() {
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [selected, setSelected] = useState<DrugResult[]>([]);
   const [requestStatus, setRequestStatus] = useState<"idle" | "loading" | "sent">("idle");
+  const [showScanner, setShowScanner] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleQueryChange = (value: string) => {
@@ -103,14 +106,21 @@ export default function Home() {
             value={query}
             onChange={(e) => handleQueryChange(e.target.value)}
             placeholder="Search by medicine name (e.g. Crocin, Dolo, Combiflam...)"
-            className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-5 py-4 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-400 transition-colors text-base"
+            className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-5 py-4 pr-20 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-400 transition-colors text-base"
             autoFocus
           />
-          {isFetching && (
-            <div className="absolute right-4 top-1/2 -translate-y-1/2">
+          <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+            {isFetching && (
               <div className="w-5 h-5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
-            </div>
-          )}
+            )}
+            <button
+              onClick={() => setShowScanner(true)}
+              className="text-zinc-500 hover:text-emerald-400 transition-colors text-lg"
+              title="Scan medicine with camera"
+            >
+              📷
+            </button>
+          </div>
         </div>
         {results.length > 0 && (
           <p className="text-zinc-600 text-xs mt-2 text-center">
@@ -245,6 +255,16 @@ export default function Home() {
       <p className="mt-4 text-roboto-1800 text-xs text-center max-w-md underline underline-offset-4 decoration-emerald-400/30 decoration-dashed">
         Made by Pranav :D
       </p>
+
+      {/* Scanner modal */}
+      {showScanner && (
+        <Suspense fallback={null}>
+          <MedicineScanner
+            onResult={(name) => handleQueryChange(name)}
+            onClose={() => setShowScanner(false)}
+          />
+        </Suspense>
+      )}
     </main>
   );
 }
