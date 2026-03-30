@@ -2,10 +2,6 @@
 
 PranavMeds is a full-stack project with a FastAPI backend and a Next.js frontend for drug information and search.
 
-## Layout
-- `backend/` — FastAPI application (Python, pyproject.toml)
-- `frontend/` — Next.js application (TypeScript)
-
 ## Quick start (local)
 Backend (from repo root):
 
