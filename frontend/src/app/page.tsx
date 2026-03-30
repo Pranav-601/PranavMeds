@@ -36,11 +36,13 @@ export default function Home() {
   const [selected, setSelected] = useState<DrugResult[]>([]);
   const [requestStatus, setRequestStatus] = useState<"idle" | "loading" | "sent">("idle");
   const [showScanner, setShowScanner] = useState(false);
+  const [showRequestPanel, setShowRequestPanel] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleQueryChange = (value: string) => {
     setQuery(value);
-    setRequestStatus("idle"); // reset toast when query changes
+    setRequestStatus("idle");
+    setShowRequestPanel(false);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => setDebouncedQuery(value), 300);
   };
@@ -78,10 +80,10 @@ export default function Home() {
       await fetch(`${API}/api/v1/request-drug`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: debouncedQuery }),
+        body: JSON.stringify({ name: debouncedQuery || query }),
       });
     } catch {
-      // fire and forget — show success regardless
+      // fire and forget
     }
     setRequestStatus("sent");
   };
@@ -122,33 +124,99 @@ export default function Home() {
         )}
       </div>
 
-      {/* Scan feature card — shows when no search is active */}
-      {!searched && (
-        <div className="w-full max-w-xl mb-6">
-          <button
-            onClick={() => setShowScanner(true)}
-            className="w-full group bg-gradient-to-br from-zinc-900 to-zinc-900/50 border border-zinc-800 hover:border-emerald-400/40 rounded-2xl p-5 text-left transition-all duration-300 hover:shadow-lg hover:shadow-emerald-400/5"
-          >
-            <div className="flex items-start gap-4">
-              <div className="w-11 h-11 rounded-xl bg-emerald-400/10 border border-emerald-400/20 flex items-center justify-center shrink-0 group-hover:bg-emerald-400/15 transition-colors">
-                <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
-                </svg>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-white font-semibold text-sm group-hover:text-emerald-400 transition-colors">
-                  Scan Medicine
-                </p>
-                <p className="text-zinc-500 text-xs mt-1 leading-relaxed">
-                  Use your camera to scan a medicine strip or box. We&apos;ll recognize it and find alternatives for you.
-                </p>
-              </div>
-              <svg className="w-4 h-4 text-zinc-600 group-hover:text-emerald-400 mt-1 shrink-0 transition-colors" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <polyline points="9 18 15 12 9 6" />
+      {/* Scan + Request row — always visible */}
+      <div className="w-full max-w-xl mb-6 flex gap-3">
+        {/* Scan Medicine */}
+        <button
+          onClick={() => setShowScanner(true)}
+          className="flex-1 group bg-zinc-900 border border-zinc-800 hover:border-emerald-400/40 rounded-2xl p-4 text-left transition-all duration-300 hover:shadow-lg hover:shadow-emerald-400/5"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-emerald-400/10 border border-emerald-400/20 flex items-center justify-center shrink-0 group-hover:bg-emerald-400/15 transition-colors">
+              <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
               </svg>
             </div>
-          </button>
+            <div className="flex-1 min-w-0">
+              <p className="text-white font-semibold text-sm group-hover:text-emerald-400 transition-colors">
+                Scan Medicine
+              </p>
+              <p className="text-zinc-500 text-xs mt-0.5 leading-relaxed">
+                Point camera at a strip or box
+              </p>
+            </div>
+          </div>
+        </button>
+
+        {/* Request Missing Medicine */}
+        <button
+          onClick={() => setShowRequestPanel((prev) => !prev)}
+          className="flex-1 group bg-zinc-900 border border-zinc-800 hover:border-amber-400/40 rounded-2xl p-4 text-left transition-all duration-300 hover:shadow-lg hover:shadow-amber-400/5"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-400/10 border border-amber-400/20 flex items-center justify-center shrink-0 group-hover:bg-amber-400/15 transition-colors">
+              <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-white font-semibold text-sm group-hover:text-amber-400 transition-colors">
+                Request Medicine
+              </p>
+              <p className="text-zinc-500 text-xs mt-0.5 leading-relaxed">
+                Can&apos;t find it? We&apos;ll fetch it
+              </p>
+            </div>
+          </div>
+        </button>
+      </div>
+
+      {/* Request panel — expands when button clicked */}
+      {showRequestPanel && (
+        <div className="w-full max-w-xl mb-6 bg-zinc-900 border border-amber-400/20 rounded-2xl p-5">
+          <p className="text-white font-semibold text-sm mb-1">Request a missing medicine</p>
+          <p className="text-zinc-500 text-xs mb-4 leading-relaxed">
+            If you can&apos;t find a medicine in search results, enter its name below and we&apos;ll scrape it from Jan Aushadhi and add it to our database.
+          </p>
+
+          {requestStatus !== "sent" ? (
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => handleQueryChange(e.target.value)}
+                placeholder="Medicine name to request..."
+                className="flex-1 bg-black border border-zinc-700 rounded-xl px-4 py-2.5 text-white placeholder-zinc-600 focus:outline-none focus:border-amber-400 transition-colors text-sm"
+              />
+              <button
+                onClick={handleRequestMissing}
+                disabled={requestStatus === "loading" || !query.trim()}
+                className="bg-amber-400 text-black font-bold text-sm px-4 py-2.5 rounded-xl hover:bg-amber-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shrink-0"
+              >
+                {requestStatus === "loading" ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                    Fetching…
+                  </>
+                ) : (
+                  "Request →"
+                )}
+              </button>
+            </div>
+          ) : (
+            <div className="bg-emerald-400/10 border border-emerald-400/30 rounded-xl px-4 py-3 text-emerald-400 text-sm">
+              ✓ Request sent! We&apos;re fetching &quot;{debouncedQuery || query}&quot; from Jan Aushadhi.
+              <br />
+              <span className="text-zinc-400 text-xs">Search again in about 30 seconds.</span>
+              <button
+                onClick={() => { setRequestStatus("idle"); setShowRequestPanel(false); }}
+                className="block mt-2 text-zinc-500 text-xs hover:text-zinc-300 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -187,34 +255,18 @@ export default function Home() {
         </div>
       )}
 
-      {/* No results + Request missing button */}
+      {/* Zero results hint (kept as extra nudge) */}
       {searched && results.length === 0 && !isFetching && (
         <div className="w-full max-w-xl text-center mb-6">
-          <p className="text-zinc-500 mb-4">No medicines found for &quot;{debouncedQuery}&quot;</p>
-
-          {requestStatus === "idle" && (
+          <p className="text-zinc-500 text-sm">
+            No medicines found for &quot;{debouncedQuery}&quot; —{" "}
             <button
-              onClick={handleRequestMissing}
-              className="text-sm bg-zinc-900 border border-zinc-700 text-zinc-300 px-5 py-2.5 rounded-xl hover:border-emerald-400 hover:text-emerald-400 transition-colors"
+              onClick={() => setShowRequestPanel(true)}
+              className="text-amber-400 hover:text-amber-300 transition-colors underline underline-offset-2"
             >
-              Can&apos;t find it? Request this medicine →
+              request it above
             </button>
-          )}
-
-          {requestStatus === "loading" && (
-            <div className="flex items-center justify-center gap-2 text-zinc-400 text-sm">
-              <div className="w-4 h-4 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
-              Looking it up...
-            </div>
-          )}
-
-          {requestStatus === "sent" && (
-            <div className="bg-emerald-400/10 border border-emerald-400/30 rounded-xl px-5 py-3 text-emerald-400 text-sm">
-              ✓ Request sent! We&apos;re fetching &quot;{debouncedQuery}&quot; from Jan Aushadhi.
-              <br />
-              <span className="text-zinc-400 text-xs">Search again in about 30 seconds.</span>
-            </div>
-          )}
+          </p>
         </div>
       )}
 
@@ -230,7 +282,6 @@ export default function Home() {
                 : "bg-zinc-900 border-zinc-800 hover:border-zinc-600"
             }`}
           >
-            {/* Medicine image */}
             {drug.image_url ? (
               <img
                 src={drug.image_url}
@@ -242,8 +293,6 @@ export default function Home() {
                 No img
               </div>
             )}
-
-            {/* Drug info */}
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-white text-base">{drug.brand_name}</p>
               <p className="text-zinc-400 text-sm mt-0.5 truncate">
@@ -257,8 +306,6 @@ export default function Home() {
                 View details →
               </a>
             </div>
-
-            {/* Price + selected */}
             <div className="text-right shrink-0">
               {drug.mrp && (
                 <p className="text-emerald-400 font-bold text-base">₹{drug.mrp}</p>
@@ -275,7 +322,7 @@ export default function Home() {
       <p className="mt-16 text-zinc-600 text-xs text-center max-w-md">
         For informational purposes only. Always consult your doctor before substituting medicines.
       </p>
-      <p className="mt-4 text-roboto-1800 text-xs text-center max-w-md underline underline-offset-4 decoration-emerald-400/30 decoration-dashed">
+      <p className="mt-4 text-xs text-center max-w-md underline underline-offset-4 decoration-emerald-400/30 decoration-dashed">
         Made by Pranav :D
       </p>
 
