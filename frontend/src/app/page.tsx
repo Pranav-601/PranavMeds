@@ -4,6 +4,7 @@ import { useState, useRef, lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 const MedicineScanner = lazy(() => import("../components/MedicineScanner"));
+const PrescriptionScanner = lazy(() => import("../components/PrescriptionScanner"));
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -36,6 +37,7 @@ export default function Home() {
   const [selected, setSelected] = useState<DrugResult[]>([]);
   const [requestStatus, setRequestStatus] = useState<"idle" | "loading" | "sent">("idle");
   const [showScanner, setShowScanner] = useState(false);
+  const [showPrescriptionScanner, setShowPrescriptionScanner] = useState(false);
   const [showRequestPanel, setShowRequestPanel] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -122,6 +124,35 @@ export default function Home() {
             Select 2 medicines to compare them
           </p>
         )}
+      </div>
+
+      {/* Scan Prescription — feature card (full width, above the two below) */}
+      <div className="w-full max-w-xl mb-3">
+        <button
+          onClick={() => setShowPrescriptionScanner(true)}
+          className="w-full group bg-zinc-900 border border-zinc-800 hover:border-purple-400/40 rounded-2xl p-4 text-left transition-all duration-300 hover:shadow-lg hover:shadow-purple-400/5"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-purple-400/10 border border-purple-400/20 flex items-center justify-center shrink-0 group-hover:bg-purple-400/15 transition-colors">
+              <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-white font-semibold text-sm group-hover:text-purple-400 transition-colors">
+                Scan Prescription
+              </p>
+              <p className="text-zinc-500 text-xs mt-0.5 leading-relaxed">
+                Upload your prescription → see branded vs generic savings instantly
+              </p>
+            </div>
+            <div className="shrink-0">
+              <span className="text-xs font-bold bg-purple-400/10 border border-purple-400/25 text-purple-400 px-2.5 py-1 rounded-full">
+                NEW
+              </span>
+            </div>
+          </div>
+        </button>
       </div>
 
       {/* Scan + Request row — always visible */}
@@ -276,11 +307,10 @@ export default function Home() {
           <div
             key={drug.id}
             onClick={() => toggleSelect(drug)}
-            className={`border rounded-xl px-5 py-4 cursor-pointer transition-all flex items-center gap-4 ${
-              isSelected(drug)
+            className={`border rounded-xl px-5 py-4 cursor-pointer transition-all flex items-center gap-4 ${isSelected(drug)
                 ? "bg-emerald-400/10 border-emerald-400"
                 : "bg-zinc-900 border-zinc-800 hover:border-zinc-600"
-            }`}
+              }`}
           >
             {drug.image_url ? (
               <img
@@ -333,6 +363,13 @@ export default function Home() {
             onResult={(name) => handleQueryChange(name)}
             onClose={() => setShowScanner(false)}
           />
+        </Suspense>
+      )}
+
+      {/* Prescription Scanner modal */}
+      {showPrescriptionScanner && (
+        <Suspense fallback={null}>
+          <PrescriptionScanner onClose={() => setShowPrescriptionScanner(false)} />
         </Suspense>
       )}
     </main>

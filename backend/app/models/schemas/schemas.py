@@ -90,3 +90,24 @@ class ComparisonResult(BaseModel):
         "This is for informational purposes only. "
         "Always consult your doctor or pharmacist before switching medicines."
     )
+
+
+# ── Prescription Scanner Schemas ──────────────────────────────
+
+class PrescriptionRow(BaseModel):
+    medicine_input: str           # raw name extracted from prescription
+    branded_name: str | None = None
+    branded_mrp: Decimal | None = None
+    generic_name: str | None = None
+    generic_mrp: Decimal | None = None
+    saving: Decimal | None = None
+    saving_pct: float | None = None   # 0.0 – 100.0
+
+
+class PrescriptionScanResult(BaseModel):
+    rows: list[PrescriptionRow]
+    total_branded: Decimal
+    total_generic: Decimal
+    total_savings: Decimal
+    medicines_found: int
+    medicines_not_found: int
