@@ -96,10 +96,8 @@ class ComparisonResult(BaseModel):
 
 class PrescriptionRow(BaseModel):
     medicine_input: str           # raw name extracted from prescription
-    branded_name: str | None = None
-    branded_mrp: Decimal | None = None
-    generic_name: str | None = None
-    generic_mrp: Decimal | None = None
+    branded_drug: DrugDetail | None = None
+    generic_drug: DrugDetail | None = None
     saving: Decimal | None = None
     saving_pct: float | None = None   # 0.0 – 100.0
 

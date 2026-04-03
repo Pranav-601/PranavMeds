@@ -15,12 +15,23 @@ type ScanState =
     | "no-results"
     | "error";
 
+interface DrugDetail {
+    id: number;
+    brand_name: string;
+    manufacturer: string | null;
+    dosage_form: string | null;
+    strength: string | null;
+    mrp: string | number | null;
+    uses: string | null;
+    side_effects: string | null;
+    image_url: string | null;
+    slug: string | null;
+}
+
 interface PrescriptionRow {
     medicine_input: string;
-    branded_name: string | null;
-    branded_mrp: string | number | null;
-    generic_name: string | null;
-    generic_mrp: string | number | null;
+    branded_drug: DrugDetail | null;
+    generic_drug: DrugDetail | null;
     saving: string | number | null;
     saving_pct: number | null;
 }
@@ -101,10 +112,10 @@ export default function PrescriptionScanner({ onClose }: PrescriptionScannerProp
 
     function buildShareText(r: ScanResult): string {
         const rows = r.rows
-            .filter((row) => row.branded_name)
+            .filter((row) => row.branded_drug)
             .map(
                 (row) =>
-                    `${row.branded_name}: ${fmt(row.branded_mrp)} → ${fmt(row.generic_mrp)} (${row.saving_pct != null ? Math.round(row.saving_pct) + "% cheaper" : ""})`
+                    `${row.branded_drug!.brand_name}: ${fmt(row.branded_drug!.mrp)} → ${fmt(row.generic_drug?.mrp ?? null)} (${row.saving_pct != null ? Math.round(row.saving_pct) + "% cheaper" : ""})`
             )
             .join("\n");
         return (
@@ -609,128 +620,144 @@ export default function PrescriptionScanner({ onClose }: PrescriptionScannerProp
                                         </p>
                                     </div>
 
-                                    {/* Medicine table */}
-                                    <div style={{ margin: "14px 16px 0" }}>
-                                        {/* Table header */}
-                                        <div
-                                            style={{
-                                                display: "grid",
-                                                gridTemplateColumns: "1fr 72px 72px 64px",
-                                                gap: 4,
-                                                padding: "6px 10px",
-                                                borderBottom: "1px solid rgba(255,255,255,0.06)",
-                                            }}
-                                        >
-                                            {["Medicine", "Branded", "Generic", "Saving"].map((h) => (
-                                                <span
-                                                    key={h}
-                                                    style={{
-                                                        color: "#475569",
-                                                        fontSize: 11,
-                                                        fontWeight: 600,
-                                                        textTransform: "uppercase",
-                                                        letterSpacing: "0.05em",
-                                                        textAlign: h !== "Medicine" ? "center" : "left",
-                                                    }}
-                                                >
-                                                    {h}
-                                                </span>
-                                            ))}
-                                        </div>
-
-                                        {/* Rows */}
+                                    {/* Medicine Cards */}
+                                    <div style={{ margin: "14px 16px 0", display: "flex", flexDirection: "column", gap: 12 }}>
                                         {result.rows.map((row, i) => {
-                                            const hasSaving =
-                                                row.saving != null && Number(row.saving) > 0;
-                                            const pct =
-                                                row.saving_pct != null
-                                                    ? Math.round(row.saving_pct)
-                                                    : null;
+                                            const hasSaving = row.saving != null && Number(row.saving) > 0;
+                                            const pct = row.saving_pct != null ? Math.round(row.saving_pct) : null;
+                                            const b = row.branded_drug;
+                                            const g = row.generic_drug;
+
                                             return (
                                                 <div
                                                     key={i}
                                                     style={{
-                                                        display: "grid",
-                                                        gridTemplateColumns: "1fr 72px 72px 64px",
-                                                        gap: 4,
-                                                        padding: "10px 10px",
-                                                        borderBottom: "1px solid rgba(255,255,255,0.04)",
-                                                        alignItems: "center",
+                                                        background: "rgba(255,255,255,0.02)",
+                                                        border: hasSaving ? "1px solid rgba(16,185,129,0.2)" : "1px solid rgba(255,255,255,0.06)",
+                                                        borderRadius: 16,
+                                                        overflow: "hidden",
+                                                        display: "flex",
+                                                        flexDirection: "column",
+                                                        transition: "all 0.3s ease",
                                                     }}
                                                 >
-                                                    <div>
-                                                        <p
-                                                            style={{
-                                                                color: "#e2e8f0",
-                                                                fontSize: 13,
-                                                                fontWeight: 600,
-                                                                margin: 0,
-                                                                lineHeight: 1.3,
-                                                            }}
-                                                        >
-                                                            {row.branded_name || row.medicine_input}
-                                                        </p>
-                                                        {!row.branded_name && (
-                                                            <p
-                                                                style={{
-                                                                    color: "#475569",
-                                                                    fontSize: 11,
-                                                                    margin: "2px 0 0",
-                                                                }}
-                                                            >
-                                                                Not in database
+                                                    {/* Card Header */}
+                                                    <div style={{
+                                                        padding: "12px 16px",
+                                                        borderBottom: "1px solid rgba(255,255,255,0.04)",
+                                                        display: "flex",
+                                                        justifyContent: "space-between",
+                                                        alignItems: "center",
+                                                        background: hasSaving ? "linear-gradient(90deg, rgba(16,185,129,0.08) 0%, transparent 100%)" : "transparent"
+                                                    }}>
+                                                        <div>
+                                                            <p style={{ color: "#94a3b8", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 2px" }}>
+                                                                Prescribed
                                                             </p>
+                                                            <p style={{ color: "#e2e8f0", fontSize: 15, fontWeight: 700, margin: 0 }}>
+                                                                {b ? b.brand_name : row.medicine_input}
+                                                            </p>
+                                                            {!b && <p style={{ color: "#ef4444", fontSize: 12, margin: "2px 0 0" }}>Not found in database</p>}
+                                                        </div>
+                                                        {hasSaving && pct != null && (
+                                                            <div style={{
+                                                                background: "rgba(16,185,129,0.12)",
+                                                                border: "1px solid rgba(16,185,129,0.25)",
+                                                                color: "#10b981",
+                                                                padding: "4px 10px",
+                                                                borderRadius: 20,
+                                                                fontSize: 12,
+                                                                fontWeight: 700,
+                                                            }}>
+                                                                Save {pct}%
+                                                            </div>
                                                         )}
                                                     </div>
-                                                    <p
-                                                        style={{
-                                                            color: "#f87171",
-                                                            fontSize: 13,
-                                                            fontWeight: 600,
-                                                            textAlign: "center",
-                                                            margin: 0,
-                                                        }}
-                                                    >
-                                                        {fmt(row.branded_mrp)}
-                                                    </p>
-                                                    <p
-                                                        style={{
-                                                            color: "#34d399",
-                                                            fontSize: 13,
-                                                            fontWeight: 600,
-                                                            textAlign: "center",
-                                                            margin: 0,
-                                                        }}
-                                                    >
-                                                        {fmt(row.generic_mrp)}
-                                                    </p>
-                                                    <div
-                                                        style={{
+
+                                                    {/* Two-pane comparison */}
+                                                    {b && (
+                                                        <div style={{ display: "flex", flexDirection: "row", position: "relative" }}>
+                                                            {/* Verses Separator */}
+                                                            <div style={{
+                                                                position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)",
+                                                                width: 24, height: 24, borderRadius: "50%", background: "#0f0a1a", border: "1px solid rgba(255,255,255,0.1)",
+                                                                display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", fontSize: 10, fontWeight: 700, zIndex: 2
+                                                            }}>VS</div>
+
+                                                            {/* Left: Branded */}
+                                                            <div style={{ flex: 1, padding: "16px", borderRight: "1px solid rgba(255,255,255,0.04)" }}>
+                                                                <p style={{ color: "#f87171", fontSize: 18, fontWeight: 700, margin: "0 0 4px" }}>
+                                                                    {fmt(b.mrp)}
+                                                                </p>
+                                                                <p style={{ color: "#94a3b8", fontSize: 12, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                                                    {b.manufacturer || "Unknown"}
+                                                                </p>
+                                                                <p style={{ color: "#64748b", fontSize: 11, margin: "2px 0 0" }}>
+                                                                    {b.dosage_form || "Medicine"}
+                                                                </p>
+                                                            </div>
+
+                                                            {/* Right: Generic */}
+                                                            <div style={{ flex: 1, padding: "16px", background: hasSaving ? "rgba(16,185,129,0.03)" : "transparent" }}>
+                                                                {g ? (
+                                                                    <>
+                                                                        <p style={{ color: "#34d399", fontSize: 18, fontWeight: 700, margin: "0 0 4px" }}>
+                                                                            {fmt(g.mrp)}
+                                                                        </p>
+                                                                        <p style={{ color: "#10b981", fontSize: 13, fontWeight: 600, margin: "0 0 2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                                                            {g.brand_name}
+                                                                        </p>
+                                                                        <p style={{ color: "#94a3b8", fontSize: 11, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                                                            {g.manufacturer || "Unknown"}
+                                                                        </p>
+                                                                    </>
+                                                                ) : (
+                                                                    <div style={{ color: "#64748b", fontSize: 12, display: "flex", height: "100%", alignItems: "center" }}>
+                                                                        No generic found
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Quick Details / Link */}
+                                                    {b && (
+                                                        <div style={{
+                                                            padding: "12px 16px",
+                                                            borderTop: "1px solid rgba(255,255,255,0.04)",
+                                                            background: "rgba(0,0,0,0.2)",
                                                             display: "flex",
-                                                            justifyContent: "center",
-                                                        }}
-                                                    >
-                                                        {hasSaving && pct != null ? (
-                                                            <span
-                                                                style={{
-                                                                    background: "rgba(16,185,129,0.12)",
-                                                                    border: "1px solid rgba(16,185,129,0.25)",
-                                                                    color: "#10b981",
-                                                                    fontSize: 11,
-                                                                    fontWeight: 700,
-                                                                    padding: "2px 6px",
-                                                                    borderRadius: 20,
-                                                                    whiteSpace: "nowrap",
-                                                                }}
-                                                            >
-                                                                {pct}%
-                                                            </span>
-                                                        ) : (
-                                                            <span style={{ color: "#475569", fontSize: 13 }}>
-                                                                —
-                                                            </span>
-                                                        )}
-                                                    </div>
+                                                            flexDirection: "column",
+                                                            gap: 8
+                                                        }}>
+                                                            {b.uses && (
+                                                                <div style={{ display: "flex", gap: 8 }}>
+                                                                    <span style={{ fontSize: 13 }}>💡</span>
+                                                                    <p style={{ color: "#cbd5e1", fontSize: 12, margin: 0, lineHeight: 1.4 }}>
+                                                                        <span style={{ color: "#94a3b8", fontWeight: 600 }}>Uses:</span> {b.uses}
+                                                                    </p>
+                                                                </div>
+                                                            )}
+                                                            {b.side_effects && (
+                                                                <div style={{ display: "flex", gap: 8 }}>
+                                                                    <span style={{ fontSize: 13 }}>⚠</span>
+                                                                    <p style={{ color: "#cbd5e1", fontSize: 12, margin: 0, lineHeight: 1.4 }}>
+                                                                        <span style={{ color: "#94a3b8", fontWeight: 600 }}>Side effects:</span> {b.side_effects}
+                                                                    </p>
+                                                                </div>
+                                                            )}
+                                                            <div style={{ marginTop: 6, display: "flex", justifyContent: "flex-end", gap: 16 }}>
+                                                                <a href={`/drug?id=${b.id}`} style={{ color: "#a855f7", fontSize: 12, fontWeight: 600, textDecoration: "none", display: "flex", alignItems: "center", gap: 4 }}>
+                                                                    View Branded →
+                                                                </a>
+                                                                {g && g.id !== b.id && (
+                                                                    <a href={`/drug?id=${g.id}`} style={{ color: "#10b981", fontSize: 12, fontWeight: 600, textDecoration: "none", display: "flex", alignItems: "center", gap: 4 }}>
+                                                                        View Generic →
+                                                                    </a>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             );
                                         })}

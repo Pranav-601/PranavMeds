@@ -14,8 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import Depends
 
 from app.core.database import get_db
-from app.models.db.models import Drug
-from app.models.schemas.schemas import PrescriptionRow, PrescriptionScanResult
+from app.models.db.models import Drug, DrugSalt
+from app.models.schemas.schemas import PrescriptionRow, PrescriptionScanResult, DrugDetail, SaltOut
+from sqlalchemy.orm import selectinload
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +102,7 @@ async def find_cheapest_generic(name: str, db: AsyncSession) -> Drug | None:
     """Find the cheapest drug that matches the name (proxy for generic/Jan Aushadhi)."""
     stmt = (
         select(Drug)
+        .options(selectinload(Drug.drug_salts).selectinload(DrugSalt.salt))
         .where(func.similarity(Drug.brand_name, name) > 0.1)
         .where(Drug.mrp.isnot(None))
         .order_by(Drug.mrp.asc())
@@ -113,6 +115,7 @@ async def find_cheapest_generic(name: str, db: AsyncSession) -> Drug | None:
         # Fallback if pg_trgm unavailable
         stmt = (
             select(Drug)
+            .options(selectinload(Drug.drug_salts).selectinload(DrugSalt.salt))
             .where(Drug.brand_name.ilike(f"%{name}%"))
             .where(Drug.mrp.isnot(None))
             .order_by(Drug.mrp.asc())
@@ -126,6 +129,7 @@ async def find_best_branded(name: str, db: AsyncSession) -> Drug | None:
     """Find the most similar branded match for the medicine name."""
     stmt = (
         select(Drug)
+        .options(selectinload(Drug.drug_salts).selectinload(DrugSalt.salt))
         .where(func.similarity(Drug.brand_name, name) > 0.1)
         .order_by(func.similarity(Drug.brand_name, name).desc())
         .limit(1)
@@ -136,12 +140,44 @@ async def find_best_branded(name: str, db: AsyncSession) -> Drug | None:
     except Exception:
         stmt = (
             select(Drug)
+            .options(selectinload(Drug.drug_salts).selectinload(DrugSalt.salt))
             .where(Drug.brand_name.ilike(f"%{name}%"))
             .order_by(Drug.brand_name)
             .limit(1)
         )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
+
+
+def _map_to_detail(drug: Drug | None) -> DrugDetail | None:
+    if not drug:
+        return None
+    salts = []
+    for ds in drug.drug_salts:
+        salts.append(SaltOut(
+            id=ds.salt.id,
+            inn_name=ds.salt.inn_name,
+            atc_code=ds.salt.atc_code,
+            pharmacological_class=ds.salt.pharmacological_class,
+            quantity=ds.quantity,
+        ))
+    return DrugDetail(
+        id=drug.id,
+        brand_name=drug.brand_name,
+        manufacturer=drug.manufacturer,
+        dosage_form=drug.dosage_form,
+        strength=drug.strength,
+        mrp=drug.mrp,
+        is_banned=drug.is_banned,
+        schedule=drug.schedule,
+        nlem_listed=drug.nlem_listed,
+        license_number=drug.license_number,
+        slug=drug.slug,
+        uses=drug.uses,
+        side_effects=drug.side_effects,
+        image_url=drug.image_url,
+        salts=salts,
+    )
 
 
 @router.post("/scan-prescription", response_model=PrescriptionScanResult)
@@ -197,25 +233,26 @@ async def scan_prescription(
             if branded_mrp > 0:
                 saving_pct = round(float(saving / branded_mrp * 100), 1)
 
+        branded_detail = _map_to_detail(branded)
+        generic_detail = _map_to_detail(generic)
+
         rows.append(PrescriptionRow(
             medicine_input=name,
-            branded_name=branded.brand_name if branded else None,
-            branded_mrp=branded_mrp,
-            generic_name=generic.brand_name if generic else None,
-            generic_mrp=generic_mrp,
+            branded_drug=branded_detail,
+            generic_drug=generic_detail,
             saving=saving,
             saving_pct=saving_pct,
         ))
 
     # Step 3: Compute totals
     total_branded = sum(
-        (r.branded_mrp for r in rows if r.branded_mrp is not None), Decimal("0")
+        (r.branded_drug.mrp for r in rows if r.branded_drug and r.branded_drug.mrp is not None), Decimal("0")
     )
     total_generic = sum(
-        (r.generic_mrp for r in rows if r.generic_mrp is not None), Decimal("0")
+        (r.generic_drug.mrp for r in rows if r.generic_drug and r.generic_drug.mrp is not None), Decimal("0")
     )
     total_savings = max(total_branded - total_generic, Decimal("0"))
-    medicines_found = sum(1 for r in rows if r.branded_name is not None)
+    medicines_found = sum(1 for r in rows if r.branded_drug is not None)
     medicines_not_found = len(rows) - medicines_found
 
     logger.info(
