@@ -55,6 +55,31 @@ export default function PrescriptionScanner({ onClose }: PrescriptionScannerProp
     const [cameraError, setCameraError] = useState(false);
     const [scanLine, setScanLine] = useState(0);
     const [shareStatus, setShareStatus] = useState<"idle" | "copied" | "shared">("idle");
+    const [flashOn, setFlashOn] = useState(false);
+
+    const toggleFlash = async () => {
+        if (!webcamRef.current) return;
+        const stream = (webcamRef.current.video as any)?.srcObject as MediaStream;
+        if (!stream) return;
+        const tracks = stream.getVideoTracks();
+        if (tracks.length === 0) return;
+        const track = tracks[0];
+        
+        try {
+            const capabilities = track.getCapabilities() as any;
+            if (capabilities.torch) {
+                const newFlashState = !flashOn;
+                await track.applyConstraints({
+                    advanced: [{ torch: newFlashState }]
+                } as any);
+                setFlashOn(newFlashState);
+            } else {
+                alert("Flashlight not supported on this device/browser.");
+            }
+        } catch (e) {
+            console.error("Torch error:", e);
+        }
+    };
 
     useEffect(() => {
         if (scanState !== "camera") return;
@@ -276,7 +301,7 @@ export default function PrescriptionScanner({ onClose }: PrescriptionScannerProp
                             <div
                                 style={{
                                     position: "relative",
-                                    height: 260,
+                                    height: 340,
                                     background: "#000",
                                     overflow: "hidden",
                                     flexShrink: 0,
@@ -352,6 +377,62 @@ export default function PrescriptionScanner({ onClose }: PrescriptionScannerProp
                                             }}
                                         >
                                             Point camera at your prescription
+                                        </div>
+                                        {/* Flash toggle */}
+                                        <button
+                                            onClick={toggleFlash}
+                                            style={{
+                                                position: "absolute",
+                                                top: 12,
+                                                right: 12,
+                                                background: flashOn ? "rgba(251,191,36,0.25)" : "rgba(0,0,0,0.65)",
+                                                border: flashOn ? "1px solid #fbbf24" : "1px solid rgba(255,255,255,0.25)",
+                                                color: flashOn ? "#fbbf24" : "#e2e8f0",
+                                                width: 36,
+                                                height: 36,
+                                                borderRadius: "50%",
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                fontSize: 16,
+                                                cursor: "pointer",
+                                                backdropFilter: "blur(8px)",
+                                            }}
+                                            title="Toggle Flashlight"
+                                        >
+                                            {flashOn ? "🔦" : "💡"}
+                                        </button>
+                                        
+                                        {/* Capture button overlay */}
+                                        <div
+                                            style={{
+                                                position: "absolute",
+                                                bottom: 20,
+                                                left: 0,
+                                                right: 0,
+                                                display: "flex",
+                                                justifyContent: "center",
+                                            }}
+                                        >
+                                            <button
+                                                onClick={handleCapture}
+                                                style={captureBtnStyle}
+                                                onMouseDown={(e) => {
+                                                    e.currentTarget.style.transform = "scale(0.94)";
+                                                }}
+                                                onMouseUp={(e) => {
+                                                    e.currentTarget.style.transform = "scale(1)";
+                                                }}
+                                                onTouchStart={(e) => {
+                                                    e.currentTarget.style.transform = "scale(0.94)";
+                                                }}
+                                                onTouchEnd={(e) => {
+                                                    e.currentTarget.style.transform = "scale(1)";
+                                                }}
+                                                title="Capture"
+                                            >
+                                                📸
+                                            </button>
                                         </div>
                                     </>
                                 )}
@@ -467,14 +548,11 @@ export default function PrescriptionScanner({ onClose }: PrescriptionScannerProp
                                 style={{
                                     padding: "14px 16px 16px",
                                     display: "flex",
-                                    gap: 10,
-                                    alignItems: "center",
-                                    justifyContent: "center",
                                 }}
                             >
                                 <button
                                     onClick={() => fileInputRef.current?.click()}
-                                    style={uploadBtnStyle}
+                                    style={{ ...uploadBtnStyle, flex: 1, justifyContent: "center" }}
                                     onMouseEnter={(e) =>
                                     (e.currentTarget.style.background =
                                         "rgba(255,255,255,0.13)")
@@ -484,29 +562,8 @@ export default function PrescriptionScanner({ onClose }: PrescriptionScannerProp
                                         "rgba(255,255,255,0.07)")
                                     }
                                 >
-                                    <span style={{ fontSize: 18 }}>🖼️</span> Upload prescription
+                                    <span style={{ fontSize: 18 }}>🖼️</span> Upload from gallery
                                 </button>
-                                {scanState === "camera" && (
-                                    <button
-                                        onClick={handleCapture}
-                                        style={captureBtnStyle}
-                                        onMouseDown={(e) => {
-                                            e.currentTarget.style.transform = "scale(0.94)";
-                                        }}
-                                        onMouseUp={(e) => {
-                                            e.currentTarget.style.transform = "scale(1)";
-                                        }}
-                                        onTouchStart={(e) => {
-                                            e.currentTarget.style.transform = "scale(0.94)";
-                                        }}
-                                        onTouchEnd={(e) => {
-                                            e.currentTarget.style.transform = "scale(1)";
-                                        }}
-                                        title="Capture"
-                                    >
-                                        📸
-                                    </button>
-                                )}
                             </div>
                         )}
 
