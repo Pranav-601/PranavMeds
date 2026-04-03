@@ -44,15 +44,9 @@ function fmt(v: string | number | null): string {
     return `₹${n.toFixed(0)}`;
 }
 
-// ✅ Fix: reliably convert a data URL to a typed Blob (preserves MIME type on mobile)
-function dataURLtoTypedBlob(dataURL: string): Blob {
-    const [header, base64] = dataURL.split(",");
-    const mimeType = header.match(/data:([^;]+);/)?.[1] || "image/jpeg";
-    const byteString = atob(base64);
-    const ab = new ArrayBuffer(byteString.length);
-    const ia = new Uint8Array(ab);
-    for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
-    return new Blob([ab], { type: mimeType });
+async function dataURLtoBlob(dataURL: string): Promise<Blob> {
+    const res = await fetch(dataURL);
+    return res.blob();
 }
 
 export default function PrescriptionScanner({ onClose }: PrescriptionScannerProps) {
@@ -147,10 +141,7 @@ export default function PrescriptionScanner({ onClose }: PrescriptionScannerProp
         setResult(null);
 
         try {
-            // ✅ Fix: use dataURLtoTypedBlob instead of fetch(dataURL).blob()
-            // fetch().blob() loses the MIME type on many mobile browsers, causing
-            // the backend to receive content_type=None and Gemini to reject the image.
-            const blob = dataURLtoTypedBlob(imageDataURL);
+            const blob = await dataURLtoBlob(imageDataURL);
 
             const form = new FormData();
             form.append("image", blob, "prescription.jpg");
@@ -158,7 +149,7 @@ export default function PrescriptionScanner({ onClose }: PrescriptionScannerProp
             const apiRes = await fetch(`${API_BASE}/api/v1/scan-prescription`, {
                 method: "POST",
                 body: form,
-                signal: AbortSignal.timeout(40000),
+                signal: AbortSignal.timeout(60000),
             });
 
             if (!apiRes.ok) {
@@ -551,6 +542,7 @@ export default function PrescriptionScanner({ onClose }: PrescriptionScannerProp
                                 overflowY: "auto",
                                 display: "flex",
                                 flexDirection: "column",
+                                minHeight: 340,
                             }}
                         >
                             {/* ── Results ── */}
