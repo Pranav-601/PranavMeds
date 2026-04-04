@@ -1,1 +1,79 @@
 @import "tailwindcss";
+
+:root {
+  /* PranavMeds Palette (Vibrant Clinical) */
+  --green-50: #f0fdf4;
+  --green-100: #dcfce7;
+  --green-500: #22c55e;
+  --green-600: #16a34a;
+
+  /* PranavMeds Primary Blue */
+  --blue-50: #eff6ff;
+  --blue-100: #dbeafe;
+  --blue-500: #3b82f6; 
+  --blue-600: #2563eb;
+  --blue-900: #1e3a8a;
+
+  /* Clinical Neutrals */
+  --neutral-50: #f8fafc;
+  --neutral-100: #f1f5f9;
+  --neutral-200: #e2e8f0;
+  --neutral-800: #1e293b;
+  --neutral-900: #0f172a;
+
+  --bg-primary: #ffffff;
+  --bg-secondary: var(--neutral-50);
+  --text-primary: var(--gray-900);
+  --text-secondary: var(--gray-500);
+  --border-primary: var(--gray-200);
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  position: relative;
+}
+
+/* Updated Denser Medical Doodle Background - Varied Symbols */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  /* Complex svg pattern with heartbeats, pluses, capsules, microscopes, and DNA */
+  background-image: url("data:image/svg+xml,%3Csvg width='160' height='160' viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%233b82f6' fill-opacity='0.08' fill-rule='evenodd'%3E%3C!-- Plus --%3E%3Cpath d='M20 40h10v10H20zM25 35h5v15h-5z'/%3E%3C!-- Capsule --%3E%3Crect x='70' y='20' width='12' height='24' rx='6' transform='rotate(45 76 32)'/%3E%3C!-- DNA --%3E%3Cpath d='M120 40c2 0 4-2 4-4s-2-4-4-4-4 2-4 4 2 4 4 4zm10 10c2 0 4-2 4-4s-2-4-4-4-4 2-4 4 2 4 4 4z'/%3E%3C!-- Heartbeat --%3E%3Cpath d='M40 100l5-10 5 20 5-10h10' fill='none' stroke='%233b82f6' stroke-width='2' stroke-opacity='0.1'/%3E%3C!-- Microscope --%3E%3Cpath d='M90 120v10h10v-3s-2-1-2-3v-4h-8z'/%3E%3Ccircle cx='95' cy='115' r='2'/%3E%3C/g%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: -100;
+}
+
+/* Custom Cursor Hide */
+@media (pointer: fine) {
+  * {
+    cursor: none !important;
+  }
+}
+
+/* Sharp Professional Cards */
+.clinical-card {
+  background: white;
+  border: 1px solid var(--border-primary);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s ease;
+  border-radius: 1.5rem;
+}
+
+.clinical-card:hover {
+  border-color: var(--blue-500);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+/* Scroll Smoothing */
+html {
+  scroll-behavior: smooth;
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

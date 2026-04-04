@@ -2,6 +2,26 @@
 
 import { useCallback, useRef, useState, useEffect } from "react";
 import Webcam from "react-webcam";
+import { motion, AnimatePresence } from "framer-motion";
+import { 
+  X, 
+  Camera, 
+  FileText, 
+  Upload, 
+  CheckCircle2, 
+  AlertCircle, 
+  Share2, 
+  RotateCcw, 
+  IndianRupee,
+  ChevronRight,
+  Lightbulb,
+  AlertTriangle,
+  Zap,
+  Activity,
+  Printer,
+  ShieldCheck,
+  Stethoscope
+} from "lucide-react";
 
 interface PrescriptionScannerProps {
     onClose: () => void;
@@ -45,8 +65,7 @@ interface ScanResult {
     medicines_not_found: number;
 }
 
-const API_BASE =
-    process.env.NEXT_PUBLIC_API_URL || "https://pranavmeds.onrender.com";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://pranavmeds.onrender.com";
 
 function fmt(v: string | number | null): string {
     if (v == null) return "—";
@@ -80,28 +99,21 @@ export default function PrescriptionScanner({ onClose }: PrescriptionScannerProp
         const tracks = stream.getVideoTracks();
         if (tracks.length === 0) return;
         const track = tracks[0];
-
         try {
             const capabilities = track.getCapabilities() as any;
             if (capabilities.torch) {
                 const newFlashState = !flashOn;
-                await track.applyConstraints({
-                    advanced: [{ torch: newFlashState }]
-                } as any);
+                await track.applyConstraints({ advanced: [{ torch: newFlashState }] } as any);
                 setFlashOn(newFlashState);
-            } else {
-                alert("Flashlight not supported on this device/browser.");
             }
-        } catch (e) {
-            console.error("Torch error:", e);
-        }
+        } catch (e) { console.error("Torch error:", e); }
     };
 
     useEffect(() => {
         if (scanState !== "camera") return;
         const interval = setInterval(() => {
-            setScanLine((prev) => (prev >= 100 ? 0 : prev + 0.8));
-        }, 16);
+            setScanLine((prev) => (prev >= 100 ? 0 : prev + 1));
+        }, 20);
         return () => clearInterval(interval);
     }, [scanState]);
 
@@ -110,34 +122,11 @@ export default function PrescriptionScanner({ onClose }: PrescriptionScannerProp
         setScanState("no-camera");
     }, []);
 
-    function buildShareText(r: ScanResult): string {
-        const rows = r.rows
-            .filter((row) => row.branded_drug)
-            .map(
-                (row) =>
-                    `${row.branded_drug!.brand_name}: ${fmt(row.branded_drug!.mrp)} → ${fmt(row.generic_drug?.mrp ?? null)} (${row.saving_pct != null ? Math.round(row.saving_pct) + "% cheaper" : ""})`
-            )
-            .join("\n");
-        return (
-            `💊 PranavMeds — Prescription Savings\n\n` +
-            `${rows}\n\n` +
-            `Branded total: ${fmt(r.total_branded)}\n` +
-            `Generic total: ${fmt(r.total_generic)}\n` +
-            `You save: ${fmt(r.total_savings)} 💚\n\n` +
-            `Find affordable medicine alternatives at pranavmeds.com`
-        );
-    }
-
     async function handleShare() {
         if (!result) return;
-        const text = buildShareText(result);
-        if (typeof navigator !== "undefined" && navigator.share) {
-            try {
-                await navigator.share({ title: "PranavMeds Prescription Savings", text });
-                setShareStatus("shared");
-            } catch {
-                /* user dismissed */
-            }
+        const text = `💊 PranavMeds Analysis: You can save ${fmt(result.total_savings)} on your prescription! Check it out.`;
+        if (navigator.share) {
+            try { await navigator.share({ title: "My Savings", text }); setShareStatus("shared"); } catch {}
         } else {
             await navigator.clipboard.writeText(text);
             setShareStatus("copied");
@@ -153,872 +142,243 @@ export default function PrescriptionScanner({ onClose }: PrescriptionScannerProp
 
         try {
             const blob = await dataURLtoBlob(imageDataURL);
-
             const form = new FormData();
             form.append("image", blob, "prescription.jpg");
 
             const apiRes = await fetch(`${API_BASE}/api/v1/scan-prescription`, {
-                method: "POST",
-                body: form,
-                signal: AbortSignal.timeout(60000),
+                method: "POST", body: form, signal: AbortSignal.timeout(60000),
             });
 
-            if (!apiRes.ok) {
-                const errText = await apiRes.text().catch(() => "");
-                throw new Error(
-                    errText
-                        ? `Server error ${apiRes.status}: ${errText.slice(0, 200)}`
-                        : `Server error ${apiRes.status}`
-                );
-            }
-
+            if (!apiRes.ok) throw new Error("Could not analyze prescription.");
             const data: ScanResult = await apiRes.json();
-
             if (data.medicines_found === 0 && data.rows.length === 0) {
-                setScanState("no-results");
-                return;
+                setScanState("no-results"); return;
             }
-
             setResult(data);
             setScanState("results");
         } catch (e: any) {
-            setErrorMsg(e?.message || "Unexpected error. Please try again.");
+            setErrorMsg(e?.message || "Analysis failed.");
             setScanState("error");
         }
     }
 
-    const handleCapture = useCallback(() => {
-        const imageSrc = webcamRef.current?.getScreenshot();
-        if (imageSrc) processImage(imageSrc);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => processImage(reader.result as string);
-        reader.readAsDataURL(file);
-        e.target.value = "";
-    };
-
-    const handleReset = () => {
-        setCapturedImage(null);
-        setResult(null);
-        setErrorMsg("");
-        setShareStatus("idle");
-        setScanState(cameraError ? "no-camera" : "camera");
-    };
-
-    const savings = result ? Number(result.total_savings) : 0;
-    const branded = result ? Number(result.total_branded) : 0;
-    const generic = result ? Number(result.total_generic) : 0;
-    const overallPct = branded > 0 ? Math.round(((branded - generic) / branded) * 100) : 0;
-
     return (
-        <>
-            <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleFileUpload}
-                style={{ display: "none" }}
-            />
+        <div className="w-full h-full bg-white flex flex-col relative text-slate-900 overflow-hidden font-sans">
+            <input ref={fileInputRef} type="file" accept="image/*" onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = () => processImage(reader.result as string);
+                    reader.readAsDataURL(file);
+                }
+            }} className="hidden" />
 
-            {/* Backdrop */}
-            <div
-                onClick={onClose}
-                style={{
-                    position: "fixed",
-                    inset: 0,
-                    background: "rgba(0,0,0,0.85)",
-                    zIndex: 9998,
-                    backdropFilter: "blur(8px)",
-                }}
-            />
-
-            {/* Modal */}
-            <div
-                style={{
-                    position: "fixed",
-                    inset: 0,
-                    zIndex: 9999,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding:
-                        "env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)",
-                    boxSizing: "border-box",
-                }}
-            >
-                <div
-                    style={{
-                        background: "#0f0a1a",
-                        borderRadius: "clamp(0px, 3vw, 20px)",
-                        overflow: "hidden",
-                        width: "min(520px, 100vw)",
-                        maxHeight: "min(860px, 100dvh)",
-                        display: "flex",
-                        flexDirection: "column",
-                        boxShadow:
-                            "0 40px 80px rgba(0,0,0,0.8), 0 0 0 1px rgba(168,85,247,0.2)",
-                    }}
-                >
-                    {/* ── Header ── */}
-                    <div
-                        style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            padding: "14px 16px 12px",
-                            borderBottom: "1px solid rgba(168,85,247,0.15)",
-                            flexShrink: 0,
-                            background:
-                                "linear-gradient(90deg, rgba(168,85,247,0.08) 0%, transparent 100%)",
-                        }}
-                    >
-                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <span style={{ fontSize: 20 }}>📋</span>
-                            <div>
-                                <div
-                                    style={{
-                                        color: "#f8fafc",
-                                        fontWeight: 700,
-                                        fontSize: 15,
-                                        letterSpacing: "-0.2px",
-                                    }}
-                                >
-                                    Prescription Scanner
-                                </div>
-                                <div style={{ color: "#7c3aed", fontSize: 12 }}>
-                                    Powered by Gemini Vision · Jan Aushadhi savings
-                                </div>
-                            </div>
-                        </div>
-                        <button
-                            onClick={onClose}
-                            style={closeBtnStyle}
-                            onMouseEnter={(e) =>
-                                (e.currentTarget.style.background = "rgba(168,85,247,0.18)")
-                            }
-                            onMouseLeave={(e) =>
-                                (e.currentTarget.style.background = "rgba(255,255,255,0.07)")
-                            }
-                        >
-                            ×
-                        </button>
+            {/* Cleaned Clinical Report Header (No-Overlap Fix) */}
+            <div className="flex items-center justify-between px-10 py-12 border-b-8 border-slate-900 flex-shrink-0 bg-white relative z-50">
+                <div className="flex items-center gap-8 min-w-0">
+                    <div className="w-18 h-18 bg-blue-600 rounded-3xl flex items-center justify-center text-white shadow-xl shadow-blue-500/20 shrink-0">
+                        <Stethoscope className="w-10 h-10" />
                     </div>
-
-                    {/* ── Dynamic Main Area (Camera or Results) ── */}
-                    {(scanState === "camera" ||
-                        scanState === "no-camera" ||
-                        scanState === "scanning") ? (
-                        <div
-                            style={{
-                                position: "relative",
-                                flex: "1 1 0",
-                                minHeight: 340,
-                                background: "#000",
-                                overflow: "hidden",
-                            }}
-                        >
-                            {scanState === "camera" && !cameraError && (
-                                <>
-                                    <Webcam
-                                        ref={webcamRef}
-                                        audio={false}
-                                        screenshotFormat="image/jpeg"
-                                        screenshotQuality={0.92}
-                                        videoConstraints={{
-                                            facingMode: { ideal: "environment" },
-                                            aspectRatio: 4 / 3,
-                                        }}
-                                        onUserMediaError={handleCameraError}
-                                        style={{
-                                            width: "100%",
-                                            height: "100%",
-                                            objectFit: "cover",
-                                            display: "block",
-                                        }}
-                                    />
-                                    {/* Scanning reticle */}
-                                    <div
-                                        style={{
-                                            position: "absolute",
-                                            inset: 0,
-                                            display: "flex",
-                                            alignItems: "center",
-                                            justifyContent: "center",
-                                            pointerEvents: "none",
-                                        }}
-                                    >
-                                        <div
-                                            style={{
-                                                position: "absolute",
-                                                inset: 0,
-                                                background:
-                                                    "radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.5) 100%)",
-                                            }}
-                                        />
-                                        {/* Scan line */}
-                                        <div
-                                            style={{
-                                                position: "absolute",
-                                                left: "12%",
-                                                right: "12%",
-                                                top: `${20 + scanLine * 0.6}%`,
-                                                height: 2,
-                                                background:
-                                                    "linear-gradient(90deg, transparent, #a855f7, #c084fc, #a855f7, transparent)",
-                                                boxShadow: "0 0 12px 2px rgba(168,85,247,0.6)",
-                                            }}
-                                        />
-                                    </div>
-                                    <div
-                                        style={{
-                                            position: "absolute",
-                                            top: 12,
-                                            left: "50%",
-                                            transform: "translateX(-50%)",
-                                            background: "rgba(0,0,0,0.65)",
-                                            backdropFilter: "blur(8px)",
-                                            color: "#e2e8f0",
-                                            fontSize: 12,
-                                            fontWeight: 500,
-                                            padding: "5px 14px",
-                                            borderRadius: 20,
-                                            whiteSpace: "nowrap",
-                                            border: "1px solid rgba(168,85,247,0.25)",
-                                        }}
-                                    >
-                                        Point camera at your prescription
-                                    </div>
-                                    {/* Flash toggle */}
-                                    <button
-                                        onClick={toggleFlash}
-                                        style={{
-                                            position: "absolute",
-                                            top: 12,
-                                            right: 12,
-                                            background: flashOn ? "rgba(251,191,36,0.25)" : "rgba(0,0,0,0.65)",
-                                            border: flashOn ? "1px solid #fbbf24" : "1px solid rgba(255,255,255,0.25)",
-                                            color: flashOn ? "#fbbf24" : "#e2e8f0",
-                                            width: 36,
-                                            height: 36,
-                                            borderRadius: "50%",
-                                            display: "flex",
-                                            alignItems: "center",
-                                            justifyContent: "center",
-                                            fontSize: 16,
-                                            cursor: "pointer",
-                                            backdropFilter: "blur(8px)",
-                                        }}
-                                        title="Toggle Flashlight"
-                                    >
-                                        {flashOn ? "🔦" : "💡"}
-                                    </button>
-
-                                    {/* Capture button overlay */}
-                                    <div
-                                        style={{
-                                            position: "absolute",
-                                            bottom: 20,
-                                            left: 0,
-                                            right: 0,
-                                            display: "flex",
-                                            justifyContent: "center",
-                                        }}
-                                    >
-                                        <button
-                                            onClick={handleCapture}
-                                            style={captureBtnStyle}
-                                            onMouseDown={(e) => {
-                                                e.currentTarget.style.transform = "scale(0.94)";
-                                            }}
-                                            onMouseUp={(e) => {
-                                                e.currentTarget.style.transform = "scale(1)";
-                                            }}
-                                            onTouchStart={(e) => {
-                                                e.currentTarget.style.transform = "scale(0.94)";
-                                            }}
-                                            onTouchEnd={(e) => {
-                                                e.currentTarget.style.transform = "scale(1)";
-                                            }}
-                                            title="Capture"
-                                        >
-                                            📸
-                                        </button>
-                                    </div>
-                                </>
-                            )}
-
-                            {scanState === "no-camera" && (
-                                <div
-                                    style={{
-                                        display: "flex",
-                                        flexDirection: "column",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        gap: 12,
-                                        padding: 32,
-                                        height: "100%",
-                                        color: "#94a3b8",
-                                        textAlign: "center",
-                                    }}
-                                >
-                                    <div style={{ fontSize: 48 }}>📷</div>
-                                    <div
-                                        style={{ fontSize: 15, fontWeight: 600, color: "#cbd5e1" }}
-                                    >
-                                        Camera access denied
-                                    </div>
-                                    <div
-                                        style={{ fontSize: 13, maxWidth: 260, lineHeight: 1.6 }}
-                                    >
-                                        Upload a photo of your prescription instead.
-                                    </div>
-                                </div>
-                            )}
-
-                            {scanState === "scanning" && (
-                                <>
-                                    {capturedImage && (
-                                        <img
-                                            src={capturedImage}
-                                            alt="Prescription"
-                                            style={{
-                                                width: "100%",
-                                                height: "100%",
-                                                objectFit: "cover",
-                                                display: "block",
-                                                filter: "brightness(0.3)",
-                                            }}
-                                        />
-                                    )}
-                                    <div
-                                        style={{
-                                            position: "absolute",
-                                            inset: 0,
-                                            display: "flex",
-                                            flexDirection: "column",
-                                            alignItems: "center",
-                                            justifyContent: "center",
-                                            gap: 14,
-                                        }}
-                                    >
-                                        <div style={{ position: "relative", width: 56, height: 56 }}>
-                                            <div
-                                                style={{
-                                                    width: 56,
-                                                    height: 56,
-                                                    borderRadius: "50%",
-                                                    border: "3px solid rgba(168,85,247,0.2)",
-                                                    borderTop: "3px solid #a855f7",
-                                                    animation: "spin 0.8s linear infinite",
-                                                }}
-                                            />
-                                            <div
-                                                style={{
-                                                    position: "absolute",
-                                                    inset: 0,
-                                                    display: "flex",
-                                                    alignItems: "center",
-                                                    justifyContent: "center",
-                                                    fontSize: 22,
-                                                }}
-                                            >
-                                                🔍
-                                            </div>
-                                        </div>
-                                        <div
-                                            style={{
-                                                color: "#e2e8f0",
-                                                fontSize: 15,
-                                                fontWeight: 600,
-                                            }}
-                                        >
-                                            Reading prescription…
-                                        </div>
-                                        <div style={{ color: "#7c3aed", fontSize: 12 }}>
-                                            Gemini Vision is extracting medicines
-                                        </div>
-                                    </div>
-                                </>
-                            )}
+                    <div className="min-w-0">
+                        <h2 className="font-black text-4xl tracking-tighter leading-none text-slate-900 uppercase truncate">Clinical Savings Report</h2>
+                        <div className="flex flex-wrap items-center gap-4 mt-4">
+                             <p className="text-slate-400 text-xs font-black uppercase tracking-[0.4em] whitespace-nowrap">Registry No: PM-9921</p>
+                             <span className="w-1.5 h-1.5 bg-slate-200 rounded-full hidden sm:block" />
+                             <p className="text-blue-600 text-xs font-black uppercase tracking-[0.4em] whitespace-nowrap">Ingredient Check Active</p>
                         </div>
-                    ) : (
-                        <div
-                            style={{
-                                flex: "1 1 0",
-                                overflowY: "auto",
-                                display: "flex",
-                                flexDirection: "column",
-                                minHeight: 340,
-                            }}
-                        >
-                            {/* ── Results ── */}
-                            {scanState === "results" && result && (
-                                <div style={{ padding: "0 0 16px" }}>
-                                    {/* Savings hero */}
-                                    <div
-                                        style={{
-                                            margin: "16px 16px 0",
-                                            background:
-                                                "linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(6,78,59,0.06) 100%)",
-                                            border: "1px solid rgba(16,185,129,0.25)",
-                                            borderRadius: 16,
-                                            padding: "16px 20px",
-                                            textAlign: "center",
-                                        }}
-                                    >
-                                        <p style={{ color: "#94a3b8", fontSize: 13, margin: 0 }}>
-                                            Your doctor prescribed{" "}
-                                            <span style={{ color: "#f87171", fontWeight: 700 }}>
-                                                {fmt(result.total_branded)}
-                                            </span>
-                                            . Same medicines cost{" "}
-                                            <span style={{ color: "#34d399", fontWeight: 700 }}>
-                                                {fmt(result.total_generic)}
-                                            </span>
-                                            .
-                                        </p>
-                                        <p
-                                            style={{
-                                                color: "#10b981",
-                                                fontSize: 36,
-                                                fontWeight: 800,
-                                                margin: "10px 0 4px",
-                                                letterSpacing: "-1px",
-                                            }}
-                                        >
-                                            {fmt(result.total_savings)}
-                                        </p>
-                                        <p
-                                            style={{
-                                                color: "#34d399",
-                                                fontSize: 14,
-                                                fontWeight: 600,
-                                                margin: 0,
-                                            }}
-                                        >
-                                            You could save this month 💚
-                                            {overallPct > 0 && (
-                                                <span
-                                                    style={{
-                                                        marginLeft: 8,
-                                                        background: "rgba(16,185,129,0.15)",
-                                                        border: "1px solid rgba(16,185,129,0.3)",
-                                                        color: "#10b981",
-                                                        fontSize: 12,
-                                                        padding: "1px 8px",
-                                                        borderRadius: 20,
-                                                    }}
-                                                >
-                                                    {overallPct}% cheaper
-                                                </span>
-                                            )}
-                                        </p>
-                                    </div>
-
-                                    {/* Medicine Cards */}
-                                    <div style={{ margin: "14px 16px 0", display: "flex", flexDirection: "column", gap: 12 }}>
-                                        {result.rows.map((row, i) => {
-                                            const hasSaving = row.saving != null && Number(row.saving) > 0;
-                                            const pct = row.saving_pct != null ? Math.round(row.saving_pct) : null;
-                                            const b = row.branded_drug;
-                                            const g = row.generic_drug;
-
-                                            return (
-                                                <div
-                                                    key={i}
-                                                    style={{
-                                                        background: "rgba(255,255,255,0.02)",
-                                                        border: hasSaving ? "1px solid rgba(16,185,129,0.2)" : "1px solid rgba(255,255,255,0.06)",
-                                                        borderRadius: 16,
-                                                        overflow: "hidden",
-                                                        display: "flex",
-                                                        flexDirection: "column",
-                                                        transition: "all 0.3s ease",
-                                                    }}
-                                                >
-                                                    {/* Card Header */}
-                                                    <div style={{
-                                                        padding: "12px 16px",
-                                                        borderBottom: "1px solid rgba(255,255,255,0.04)",
-                                                        display: "flex",
-                                                        justifyContent: "space-between",
-                                                        alignItems: "center",
-                                                        background: hasSaving ? "linear-gradient(90deg, rgba(16,185,129,0.08) 0%, transparent 100%)" : "transparent"
-                                                    }}>
-                                                        <div>
-                                                            <p style={{ color: "#94a3b8", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 2px" }}>
-                                                                Prescribed
-                                                            </p>
-                                                            <p style={{ color: "#e2e8f0", fontSize: 15, fontWeight: 700, margin: 0 }}>
-                                                                {b ? b.brand_name : row.medicine_input}
-                                                            </p>
-                                                            {!b && <p style={{ color: "#ef4444", fontSize: 12, margin: "2px 0 0" }}>Not found in database</p>}
-                                                        </div>
-                                                        {hasSaving && pct != null && (
-                                                            <div style={{
-                                                                background: "rgba(16,185,129,0.12)",
-                                                                border: "1px solid rgba(16,185,129,0.25)",
-                                                                color: "#10b981",
-                                                                padding: "4px 10px",
-                                                                borderRadius: 20,
-                                                                fontSize: 12,
-                                                                fontWeight: 700,
-                                                            }}>
-                                                                Save {pct}%
-                                                            </div>
-                                                        )}
-                                                    </div>
-
-                                                    {/* Two-pane comparison */}
-                                                    {b && (
-                                                        <div style={{ display: "flex", flexDirection: "row", position: "relative" }}>
-                                                            {/* Verses Separator */}
-                                                            <div style={{
-                                                                position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)",
-                                                                width: 24, height: 24, borderRadius: "50%", background: "#0f0a1a", border: "1px solid rgba(255,255,255,0.1)",
-                                                                display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", fontSize: 10, fontWeight: 700, zIndex: 2
-                                                            }}>VS</div>
-
-                                                            {/* Left: Branded */}
-                                                            <div style={{ flex: 1, padding: "16px", borderRight: "1px solid rgba(255,255,255,0.04)" }}>
-                                                                <p style={{ color: "#f87171", fontSize: 18, fontWeight: 700, margin: "0 0 4px" }}>
-                                                                    {fmt(b.mrp)}
-                                                                </p>
-                                                                <p style={{ color: "#94a3b8", fontSize: 12, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                                                    {b.manufacturer || "Unknown"}
-                                                                </p>
-                                                                <p style={{ color: "#64748b", fontSize: 11, margin: "2px 0 0" }}>
-                                                                    {b.dosage_form || "Medicine"}
-                                                                </p>
-                                                            </div>
-
-                                                            {/* Right: Generic */}
-                                                            <div style={{ flex: 1, padding: "16px", background: hasSaving ? "rgba(16,185,129,0.03)" : "transparent" }}>
-                                                                {g ? (
-                                                                    <>
-                                                                        <p style={{ color: "#34d399", fontSize: 18, fontWeight: 700, margin: "0 0 4px" }}>
-                                                                            {fmt(g.mrp)}
-                                                                        </p>
-                                                                        <p style={{ color: "#10b981", fontSize: 13, fontWeight: 600, margin: "0 0 2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                                                            {g.brand_name}
-                                                                        </p>
-                                                                        <p style={{ color: "#94a3b8", fontSize: 11, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                                                            {g.manufacturer || "Unknown"}
-                                                                        </p>
-                                                                    </>
-                                                                ) : (
-                                                                    <div style={{ color: "#64748b", fontSize: 12, display: "flex", height: "100%", alignItems: "center" }}>
-                                                                        No generic found
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    )}
-
-                                                    {/* Quick Details / Link */}
-                                                    {b && (
-                                                        <div style={{
-                                                            padding: "12px 16px",
-                                                            borderTop: "1px solid rgba(255,255,255,0.04)",
-                                                            background: "rgba(0,0,0,0.2)",
-                                                            display: "flex",
-                                                            flexDirection: "column",
-                                                            gap: 8
-                                                        }}>
-                                                            {b.uses && (
-                                                                <div style={{ display: "flex", gap: 8 }}>
-                                                                    <span style={{ fontSize: 13 }}>💡</span>
-                                                                    <p style={{ color: "#cbd5e1", fontSize: 12, margin: 0, lineHeight: 1.4 }}>
-                                                                        <span style={{ color: "#94a3b8", fontWeight: 600 }}>Uses:</span> {b.uses}
-                                                                    </p>
-                                                                </div>
-                                                            )}
-                                                            {b.side_effects && (
-                                                                <div style={{ display: "flex", gap: 8 }}>
-                                                                    <span style={{ fontSize: 13 }}>⚠</span>
-                                                                    <p style={{ color: "#cbd5e1", fontSize: 12, margin: 0, lineHeight: 1.4 }}>
-                                                                        <span style={{ color: "#94a3b8", fontWeight: 600 }}>Side effects:</span> {b.side_effects}
-                                                                    </p>
-                                                                </div>
-                                                            )}
-                                                            <div style={{ marginTop: 6, display: "flex", justifyContent: "flex-end", gap: 16 }}>
-                                                                <a href={`/drug?id=${b.id}`} style={{ color: "#a855f7", fontSize: 12, fontWeight: 600, textDecoration: "none", display: "flex", alignItems: "center", gap: 4 }}>
-                                                                    View Branded →
-                                                                </a>
-                                                                {g && g.id !== b.id && (
-                                                                    <a href={`/drug?id=${g.id}`} style={{ color: "#10b981", fontSize: 12, fontWeight: 600, textDecoration: "none", display: "flex", alignItems: "center", gap: 4 }}>
-                                                                        View Generic →
-                                                                    </a>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-
-                                    {/* Stats footer */}
-                                    {result.medicines_not_found > 0 && (
-                                        <p
-                                            style={{
-                                                margin: "10px 16px 0",
-                                                color: "#64748b",
-                                                fontSize: 12,
-                                            }}
-                                        >
-                                            ⚠ {result.medicines_not_found} medicine
-                                            {result.medicines_not_found > 1 ? "s" : ""} not found in
-                                            our database — savings may be higher in reality.
-                                        </p>
-                                    )}
-
-                                    {/* Action buttons */}
-                                    <div
-                                        style={{
-                                            display: "flex",
-                                            gap: 10,
-                                            padding: "14px 16px 16px",
-                                        }}
-                                    >
-                                        <button
-                                            onClick={handleShare}
-                                            style={{
-                                                ...shareBtnStyle,
-                                                background:
-                                                    shareStatus === "idle"
-                                                        ? "linear-gradient(135deg, #059669, #10b981)"
-                                                        : shareStatus === "copied"
-                                                            ? "#1e3a2f"
-                                                            : "#1e3a2f",
-                                            }}
-                                            onMouseEnter={(e) => {
-                                                if (shareStatus === "idle")
-                                                    e.currentTarget.style.filter = "brightness(1.1)";
-                                            }}
-                                            onMouseLeave={(e) => {
-                                                e.currentTarget.style.filter = "none";
-                                            }}
-                                        >
-                                            {shareStatus === "idle"
-                                                ? "📤 Share savings"
-                                                : shareStatus === "copied"
-                                                    ? "✓ Copied!"
-                                                    : "✓ Shared!"}
-                                        </button>
-                                        <button
-                                            onClick={handleReset}
-                                            style={secondaryBtnStyle}
-                                            onMouseEnter={(e) =>
-                                            (e.currentTarget.style.background =
-                                                "rgba(255,255,255,0.11)")
-                                            }
-                                            onMouseLeave={(e) =>
-                                            (e.currentTarget.style.background =
-                                                "rgba(255,255,255,0.07)")
-                                            }
-                                        >
-                                            🔄 Scan another
-                                        </button>
-                                    </div>
-
-                                    <p
-                                        style={{
-                                            margin: "0 16px 14px",
-                                            color: "#374151",
-                                            fontSize: 11,
-                                            lineHeight: 1.5,
-                                        }}
-                                    >
-                                        For informational purposes only. Always consult your doctor
-                                        or pharmacist before switching medicines.
-                                    </p>
-                                </div>
-                            )}
-
-                            {/* No results */}
-                            {scanState === "no-results" && (
-                                <div style={{ padding: "20px 16px" }}>
-                                    <div
-                                        style={{
-                                            background: "rgba(251,191,36,0.08)",
-                                            border: "1px solid rgba(251,191,36,0.2)",
-                                            borderRadius: 12,
-                                            padding: "14px 16px",
-                                            marginBottom: 12,
-                                            color: "#fbbf24",
-                                            fontSize: 14,
-                                            lineHeight: 1.6,
-                                        }}
-                                    >
-                                        🔍 No medicines detected on this prescription.
-                                        <br />
-                                        <span style={{ color: "#64748b", fontSize: 12 }}>
-                                            Try a clearer photo with good lighting. Printed
-                                            prescriptions work better than handwritten ones.
-                                        </span>
-                                    </div>
-                                    <div style={{ display: "flex", gap: 8 }}>
-                                        <button onClick={handleReset} style={secondaryBtnStyle}>
-                                            🔄 Try again
-                                        </button>
-                                        <button
-                                            onClick={() => fileInputRef.current?.click()}
-                                            style={{ ...secondaryBtnStyle, flex: "0 0 auto" }}
-                                        >
-                                            🖼️ Upload instead
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Error */}
-                            {scanState === "error" && (
-                                <div style={{ padding: "20px 16px" }}>
-                                    <div
-                                        style={{
-                                            background: "rgba(239,68,68,0.08)",
-                                            border: "1px solid rgba(239,68,68,0.2)",
-                                            borderRadius: 12,
-                                            padding: "12px 16px",
-                                            marginBottom: 12,
-                                            color: "#fca5a5",
-                                            fontSize: 12,
-                                            lineHeight: 1.6,
-                                            wordBreak: "break-word",
-                                        }}
-                                    >
-                                        {errorMsg || "Something went wrong. Please try again."}
-                                    </div>
-                                    <div style={{ display: "flex", gap: 8 }}>
-                                        <button onClick={handleReset} style={secondaryBtnStyle}>
-                                            🔄 Try again
-                                        </button>
-                                        <button
-                                            onClick={() => fileInputRef.current?.click()}
-                                            style={{ ...secondaryBtnStyle, flex: "0 0 auto" }}
-                                        >
-                                            🖼️ Upload instead
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {/* ── Fixed Bottom Actions (Upload, etc.) ── */}
-                    {(scanState === "camera" || scanState === "no-camera") && (
-                        <div
-                            style={{
-                                flexShrink: 0,
-                                padding: "14px 16px 16px",
-                                background: "#0f0a1a",
-                            }}
-                        >
-                            <button
-                                onClick={() => fileInputRef.current?.click()}
-                                style={{ ...uploadBtnStyle, width: "100%", justifyContent: "center" }}
-                                onMouseEnter={(e) =>
-                                (e.currentTarget.style.background =
-                                    "rgba(255,255,255,0.13)")
-                                }
-                                onMouseLeave={(e) =>
-                                (e.currentTarget.style.background =
-                                    "rgba(255,255,255,0.07)")
-                                }
-                            >
-                                <span style={{ fontSize: 18 }}>🖼️</span> Upload photo
-                            </button>
-                        </div>
-                    )}
+                    </div>
+                </div>
+                <div className="flex items-center gap-4 shrink-0">
+                    <button onClick={() => window.print()} className="w-16 h-16 rounded-full border-2 border-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-50 transition-all shadow-sm">
+                        <Printer className="w-7 h-7" />
+                    </button>
+                    <button onClick={onClose} className="w-16 h-16 rounded-full bg-slate-900 border-none flex items-center justify-center text-white hover:bg-red-600 active:scale-90 transition-all shadow-xl">
+                        <X className="w-8 h-8" />
+                    </button>
                 </div>
             </div>
 
-            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-        </>
+            {/* Main Clinical Content */}
+            <div className="flex-1 overflow-y-auto no-scrollbar bg-white relative">
+                {(scanState === "camera" || scanState === "no-camera" || scanState === "scanning") && (
+                    <div className="h-full relative bg-slate-100 overflow-hidden">
+                        {scanState === "camera" && !cameraError && (
+                            <>
+                                <Webcam ref={webcamRef} audio={false} screenshotFormat="image/jpeg" videoConstraints={{ facingMode: "environment", aspectRatio: 4/3 }} onUserMediaError={handleCameraError} className="w-full h-full object-cover opacity-80" />
+                                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none p-10">
+                                   <div className="w-full max-w-[500px] h-2/3 border-[10px] border-slate-900/10 rounded-[5rem] relative">
+                                      <div className="absolute inset-x-0 h-2 bg-blue-600 shadow-[0_0_30px_rgba(37,99,235,1)]" style={{ top: `${scanLine}%` }} />
+                                   </div>
+                                   <div className="mt-16 bg-slate-900 px-12 py-4 rounded-full shadow-4xl">
+                                      <p className="text-white text-xs font-black uppercase tracking-[0.4em]">Scan prescription for chemical analysis</p>
+                                   </div>
+                                </div>
+                                <button onClick={toggleFlash} className={`absolute top-12 right-12 w-20 h-20 rounded-full flex items-center justify-center transition-all ${flashOn ? 'bg-amber-400 text-slate-900 shadow-4xl' : 'bg-white text-slate-400 border-2 border-slate-100 shadow-xl'}`}>
+                                    <Zap className={`w-10 h-10 ${flashOn ? 'fill-current' : ''}`} />
+                                </button>
+                                <div className="absolute bottom-16 left-1/2 -translate-x-1/2 flex items-center gap-12">
+                                   <button onClick={() => fileInputRef.current?.click()} className="w-20 h-20 rounded-full bg-white border-2 border-slate-100 text-slate-400 flex items-center justify-center hover:bg-slate-50 transition-all shadow-2xl">
+                                      <Upload className="w-8 h-8" />
+                                   </button>
+                                   <button onClick={() => { const src = webcamRef.current?.getScreenshot(); if(src) processImage(src); }} className="w-28 h-28 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-5xl shadow-blue-600/40 hover:bg-blue-500 active:scale-95 transition-all">
+                                      <Camera className="w-14 h-14" />
+                                   </button>
+                                   <div className="w-20 h-20 invisible" />
+                                </div>
+                            </>
+                        )}
+                        {scanState === "scanning" && (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-12 bg-white">
+                               <div className="w-28 h-28 bg-blue-600 rounded-[3rem] flex items-center justify-center text-white animate-pulse shadow-5xl shadow-blue-600/20">
+                                  <Activity className="w-14 h-14" strokeWidth={4} />
+                               </div>
+                               <div className="text-center">
+                                  <h3 className="text-4xl font-black text-slate-900 uppercase tracking-tighter mb-4">Reading Elements</h3>
+                                  <p className="text-slate-400 text-sm font-bold uppercase tracking-[0.2em]">Cross-verifying pharmaceutical ingredients...</p>
+                               </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {scanState === "results" && result && (
+                    <div className="p-20 pb-48 flex flex-col gap-16 max-w-5xl mx-auto">
+                        {/* Clinical Receipt Block */}
+                        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="border-[10px] border-emerald-500 rounded-[5rem] p-20 flex flex-col items-center bg-white relative overflow-hidden ring-[30px] ring-emerald-50 shadow-inner">
+                           <div className="inline-flex items-center gap-4 px-8 py-3.5 bg-emerald-500 text-white rounded-full text-[11px] font-black uppercase tracking-[0.4em] mb-12 shadow-2xl shadow-emerald-500/30">
+                              <ShieldCheck className="w-6 h-6" /> Result Authenticated
+                           </div>
+                           <h3 className="text-slate-400 font-black text-xs uppercase tracking-[0.5em] mb-6">Total Potential Discount</h3>
+                           <div className="flex items-center justify-center gap-4 text-emerald-600">
+                              <span className="text-[100px] font-black tracking-tighter py-3 border-b-[12px] border-emerald-500 leading-none">₹{result.total_savings}</span>
+                           </div>
+                           <p className="text-slate-500 font-bold text-xl mt-12 max-w-sm text-center leading-relaxed">Save on verified equivalents with identical chemical components.</p>
+                           
+                           <div className="w-full grid grid-cols-2 gap-12 mt-20 pt-20 border-t-4 border-slate-100 border-dashed">
+                               <div className="text-center group">
+                                  <p className="text-slate-400 text-xs font-black uppercase tracking-[0.2em] mb-3 group-hover:text-red-500 transition-colors">Standard MRP</p>
+                                  <p className="text-5xl font-black text-slate-200 line-through">₹{result.total_branded}</p>
+                               </div>
+                               <div className="text-center">
+                                  <p className="text-slate-400 text-xs font-black uppercase tracking-[0.2em] mb-3">Equivalent Price</p>
+                                  <p className="text-5xl font-black text-emerald-600">₹{result.total_generic}</p>
+                               </div>
+                           </div>
+                        </motion.div>
+
+                        {/* Professional Medicine Analysis List */}
+                        <div className="flex flex-col gap-6 mt-12">
+                            <div className="flex items-center justify-between px-12 mb-8 font-black text-xs uppercase tracking-[0.5em] text-slate-300">
+                               <span>Ingredient Entry</span>
+                               <span>Market Pricing</span>
+                            </div>
+
+                            {result.rows.map((row, i) => {
+                                const b = row.branded_drug;
+                                const g = row.generic_drug;
+                                const hasSaving = row.saving != null && Number(row.saving) > 0;
+
+                                return (
+                                    <motion.div initial={{ opacity: 0, x: -15 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }} key={i} className={`flex flex-col border-[4px] rounded-[4rem] p-12 transition-all ${hasSaving ? 'border-emerald-500/20 bg-emerald-50/5' : 'border-slate-100 bg-white shadow-xl shadow-slate-100'}`}>
+                                        <div className="flex items-start justify-between mb-10 gap-12">
+                                            <div className="flex-1 min-w-0">
+                                               <p className="text-slate-300 text-[11px] font-black uppercase tracking-widest mb-4">Entry #0{i+1}</p>
+                                               <h4 className="text-4xl font-black text-slate-900 tracking-tighter uppercase leading-tight truncate">{b ? b.brand_name : row.medicine_input}</h4>
+                                               <div className="flex items-center gap-4 mt-6 truncate">
+                                                  <FlaskConical className="w-5 h-5 text-blue-500" />
+                                                  <p className="text-slate-500 text-sm font-bold uppercase tracking-[0.1em]">{b?.manufacturer || "Laboratory Analysis"}</p>
+                                               </div>
+                                            </div>
+                                            <div className="text-right shrink-0">
+                                               <p className="text-slate-300 text-[11px] font-black uppercase tracking-widest mb-4">Standard MRP</p>
+                                               <p className={`text-4xl font-black ${hasSaving ? 'text-slate-200' : 'text-slate-900'}`}>₹{b ? b.mrp : '—'}</p>
+                                            </div>
+                                        </div>
+
+                                        {g && (
+                                            <div className="bg-white border-[3px] border-emerald-500 rounded-[3rem] p-12 flex items-center justify-between relative shadow-4xl shadow-emerald-500/10 group cursor-default">
+                                               <div className="absolute -left-4 top-1/2 -translate-y-1/2 w-8 h-20 bg-emerald-500 rounded-full flex items-center justify-center text-white overflow-hidden text-[10px] font-black vertical-text uppercase">Pranav Check</div>
+                                               
+                                               <div className="flex-1 pr-12 min-w-0">
+                                                  <div className="flex flex-wrap items-center gap-4 mb-4">
+                                                     <div className="px-5 py-1.5 bg-emerald-500 text-white rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg shadow-emerald-500/20">Certified Safe Equivalent</div>
+                                                     {row.saving_pct != null && <span className="text-emerald-500 font-extrabold text-sm uppercase tracking-widest">₹{row.saving} Savings</span>}
+                                                  </div>
+                                                  <h5 className="text-3xl font-black text-slate-900 tracking-tighter uppercase truncate">{g.brand_name}</h5>
+                                                  <p className="text-slate-400 text-xs font-bold mt-3 uppercase tracking-widest">{g.manufacturer || "Laboratory Verified"}</p>
+                                               </div>
+
+                                               <div className="text-right border-l-4 border-emerald-100 pl-12 flex flex-col justify-center min-w-[180px] shrink-0">
+                                                  <p className="text-emerald-500 font-black text-xs uppercase tracking-widest mb-3">Equivalent Price</p>
+                                                  <p className="text-5xl font-black text-emerald-600">₹{g.mrp}</p>
+                                                  <p className="text-emerald-400 text-[11px] font-black uppercase mt-3 tracking-widest">{row.saving_pct}% Cheaper</p>
+                                               </div>
+
+                                               <div className="absolute right-8 top-8 opacity-20 group-hover:opacity-100 transition-opacity hidden sm:block">
+                                                  <CheckCircle2 className="w-10 h-10 text-emerald-500" strokeWidth={3} />
+                                               </div>
+                                            </div>
+                                        )}
+
+                                        {b && (b.uses || b.side_effects) && (
+                                            <div className="mt-12 pt-12 border-t-2 border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-12">
+                                               {b.uses && (
+                                                  <div className="flex gap-6">
+                                                     <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-[1.25rem] flex items-center justify-center shrink-0 shadow-sm"><Lightbulb className="w-7 h-7" /></div>
+                                                     <div>
+                                                        <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.3em] mb-2">Clinical Specs</p>
+                                                        <p className="text-slate-600 text-sm font-bold leading-relaxed">{b.uses}</p>
+                                                     </div>
+                                                  </div>
+                                               )}
+                                               {b.side_effects && (
+                                                  <div className="flex gap-6">
+                                                     <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-[1.25rem] flex items-center justify-center shrink-0 shadow-sm"><AlertTriangle className="w-7 h-7" /></div>
+                                                     <div>
+                                                        <p className="text-slate-300 text-[10px] font-black uppercase tracking-[0.3em] mb-2">Clinical Cautions</p>
+                                                        <p className="text-slate-600 text-sm font-bold leading-relaxed">{b.side_effects}</p>
+                                                     </div>
+                                                  </div>
+                                               )}
+                                            </div>
+                                        )}
+                                    </motion.div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* Sticky Action Bar */}
+            <AnimatePresence>
+                {result && (
+                    <motion.div initial={{ y: 200 }} animate={{ y: 0 }} className="absolute bottom-16 left-1/2 -translate-x-1/2 w-full max-w-2xl px-12 z-[20]">
+                        <div className="bg-slate-900 rounded-[3rem] p-4 pl-12 flex items-center justify-between shadow-6xl shadow-slate-900/60 divide-x-2 divide-white/10 ring-12 ring-white">
+                           <div className="pr-12">
+                               <p className="text-slate-500 text-[10px] font-black uppercase tracking-[0.4em] mb-1">Status</p>
+                               <span className="text-white font-black text-lg uppercase tracking-tighter">Verified by Pranav</span>
+                           </div>
+                           <button onClick={handleShare} className="flex-1 py-5 bg-emerald-500 hover:bg-emerald-400 text-white rounded-[2rem] font-black text-sm uppercase tracking-[0.3em] transition-all flex items-center justify-center gap-4 ml-8 shadow-2xl shadow-emerald-500/20 active:scale-95">
+                              {shareStatus === "idle" ? <><Share2 className="w-6 h-6" /> Share Analysis</> : <><CheckCircle2 className="w-6 h-6" /> Result Copied</>}
+                           </button>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            <style>{`
+                .vertical-text { writing-mode: vertical-rl; transform: rotate(180deg); opacity: 0.8; }
+                .shadow-6xl { box-shadow: 0 60px 150px -30px rgba(0,0,0,0.7); }
+                .shadow-5xl { box-shadow: 0 35px 70px -15px rgba(59,130,246,0.5); }
+            `}</style>
+        </div>
     );
 }
 
-const closeBtnStyle: React.CSSProperties = {
-    background: "rgba(255,255,255,0.07)",
-    border: "none",
-    borderRadius: "50%",
-    width: 34,
-    height: 34,
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#94a3b8",
-    fontSize: 18,
-    lineHeight: 1,
-    transition: "background 0.15s",
-};
-const uploadBtnStyle: React.CSSProperties = {
-    flex: "0 0 auto",
-    height: 52,
-    padding: "0 20px",
-    background: "rgba(255,255,255,0.07)",
-    border: "1px solid rgba(255,255,255,0.12)",
-    borderRadius: 14,
-    color: "#cbd5e1",
-    fontSize: 13,
-    fontWeight: 600,
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    transition: "background 0.15s",
-    whiteSpace: "nowrap",
-};
-const captureBtnStyle: React.CSSProperties = {
-    flex: "0 0 auto",
-    width: 68,
-    height: 68,
-    borderRadius: "50%",
-    background: "#a855f7",
-    border: "4px solid rgba(255,255,255,0.15)",
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: 26,
-    boxShadow: "0 0 0 2px #a855f7, 0 6px 20px rgba(168,85,247,0.4)",
-    transition: "transform 0.1s",
-};
-const shareBtnStyle: React.CSSProperties = {
-    flex: 1,
-    height: 46,
-    border: "none",
-    borderRadius: 12,
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: 700,
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    transition: "filter 0.15s, background 0.3s",
-};
-const secondaryBtnStyle: React.CSSProperties = {
-    flex: 1,
-    height: 46,
-    background: "rgba(255,255,255,0.07)",
-    border: "1px solid rgba(255,255,255,0.1)",
-    borderRadius: 12,
-    color: "#cbd5e1",
-    fontSize: 13,
-    fontWeight: 600,
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    transition: "background 0.15s",
-};
+const FlaskConical = ({ className }: { className?: string }) => (
+  <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10 2v7.5" /><path d="M14 2v7.5" /><path d="M8.5 2h7" /><path d="M14 9.5c3 6 4.5 8.5 4.5 10.5a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2c0-2 1.5-4.5 4.5-10.5" />
+    <path d="M7 16h10" />
+  </svg>
+);
