@@ -143,7 +143,7 @@ const SmartSearchCursor = () => {
       transition={{ scale: { duration: 1.2, repeat: Infinity, ease: "easeInOut" },
         width: { type: "spring", damping: 20, stiffness: 300 },
         height: { type: "spring", damping: 20, stiffness: 300 },
-        x: { type: "tweeen" }, y: { type: "tween" }
+        x: { type: "tween" }, y: { type: "tween" }
       }}
     >
       <AnimatePresence mode="wait">
