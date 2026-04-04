@@ -373,8 +373,8 @@ export default function Home() {
       <footer className="w-full max-w-2xl text-center py-32 z-[20] mt-20 opacity-80">
         <div className="flex flex-col items-center gap-6">
              <div className="w-20 h-1.5 bg-blue-600 rounded-full mb-4" />
-             <p className="text-slate-900 font-extrabold text-2xl tracking-tighter">PRANAVMEDS ORIGINAL</p>
-             <p className="text-slate-400 text-xs font-black uppercase tracking-[0.8em]">MADE BY <span className="text-blue-600 underline underline-offset-8 decoration-[4px]">PRANAV</span> WITH 💚</p>
+             <p className="text-slate-900 font-extrabold text-2xl tracking-tighter">PRANAVMEDS </p>
+             <p className="text-slate-400 text-xs font-black uppercase tracking-[0.8em]">ONE OF MANY BY <span className="text-blue-600 underline underline-offset-8 decoration-[4px]">PRANAV</span></p>
         </div>
       </footer>
 
